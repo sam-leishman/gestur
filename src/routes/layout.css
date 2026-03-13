@@ -1,2 +1,26 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
+
+@theme {
+    --color-background: #F3EFE6;
+    --color-canvas: #EDE8DD;
+    --color-pressed: #E6E0D3;
+
+    --color-ink: #2C1F14;
+    --color-warm-gray: #7A5C48;
+    --color-muted: #C4A98E;
+
+    --color-terracotta: #C2663A;
+    --color-terracotta-light: #E8896A;
+    --color-terracotta-tint: #F5DDD2;
+}
+
+@layer components {
+    .btn {
+        @apply px-4 py-2 rounded-lg;
+    }
+    
+    .btn-primary {
+        @apply bg-terracotta hover:bg-terracotta-light text-white;
+    }
+}
