@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 
+:root {
+    --header-height: 64px;
+}
+
 @theme {
     --color-background: #F3EFE6;
     --color-canvas: #EDE8DD;
@@ -17,10 +21,14 @@
 
 @layer components {
     .btn {
-        @apply px-4 py-2 rounded-lg;
+        @apply px-4 py-2 rounded-lg cursor-pointer;
     }
     
     .btn-primary {
-        @apply bg-terracotta hover:bg-terracotta-light text-white;
+        @apply bg-terracotta hover:bg-terracotta-light text-white transition-colors;
+    }
+    
+    .btn-terracotta-tint {
+        @apply bg-terracotta-tint hover:bg-terracotta-light/20 transition-colors;
     }
 }
