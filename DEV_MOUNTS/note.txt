@@ -1,0 +1,2 @@
+This folder only gets used if environment variables aren't set
+When running in local development, config.ts checks for .env, then falls back to this folder
