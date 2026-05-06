@@ -1,12 +1,8 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { User, House, Library } from "lucide-svelte";
-
-
+	import { User, House, Image } from "lucide-svelte";
 
     let { isOpen = $bindable(true) } = $props();
-
-
 
     const isActive = (path: string) => {
 		return page.url.pathname === path || page.url.pathname.startsWith(path + '/');
@@ -20,10 +16,10 @@
             isActive: isActive('/')
         },
         {
-            label: 'Collections',
-            icon: Library,
-            href: '/collections',
-            isActive: isActive('/collections')
+            label: 'Browse',
+            icon: Image,
+            href: '/browse',
+            isActive: isActive('/browse')
         },
         {
             label: 'Profile',
