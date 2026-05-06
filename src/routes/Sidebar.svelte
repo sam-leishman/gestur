@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { User, House, Image } from "lucide-svelte";
+	import { User, House, Image, Database } from "lucide-svelte";
 
     let { isOpen = $bindable(true) } = $props();
 
@@ -20,6 +20,12 @@
             icon: Image,
             href: '/browse',
             isActive: isActive('/browse')
+        },
+        {
+            label: 'Data',
+            icon: Database,
+            href: '/data',
+            isActive: isActive('/data')
         },
         {
             label: 'Profile',

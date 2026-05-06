@@ -78,7 +78,7 @@ export const subjectFields = sqliteTable('subject_fields', {
 	subjectId: text('subject_id').notNull().references(() => subjects.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
 	type: text('type', { enum: ['text', 'number', 'boolean', 'select'] }).notNull(),
-	options: text('options'),
+	options: text('options', { mode: 'json' }).$type<string[]>(),
 	required: integer('required', { mode: 'boolean' }).notNull().default(false),
 	sortOrder: integer('sort_order').notNull().default(0)
 }, (table) => [
