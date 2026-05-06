@@ -4,7 +4,7 @@ import { resolve } from "path";
 import { env } from '$env/dynamic/private';
 
 // =================================================================================================================================
-// Local Dev: Gets vars from .env, falls back to DEV_MOUNTS
+// Local Dev: Gets vars from .env, falls back to DEV_MOUNTS (should be set in .env anyway)
 // Production (Docker): Uses /data and /images (directories in the container)
 //     - DOCKER_MOUNTS is the host side of the mount (set in compose.yaml) for testing, and /data and /images are the container side
 // =================================================================================================================================
