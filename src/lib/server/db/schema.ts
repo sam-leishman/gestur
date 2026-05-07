@@ -14,7 +14,7 @@ export const images = sqliteTable('images', {
 		.primaryKey()
 		.$defaultFn(() => crypto.randomUUID()),
 	title: text('title').notNull(),
-	filePath: text('file_path').notNull()
+	filePath: text('file_path').notNull().unique()
 });
 
 export const imagesRelations = relations(images, ({ many }) => ({
@@ -144,7 +144,7 @@ export const imageSubjectFieldValues = sqliteTable('image_subject_field_values',
 	foreignKey({
 		columns: [table.subjectFieldId, table.subjectId],
 		foreignColumns: [subjectFields.id, subjectFields.subjectId]
-	})
+	}).onDelete('cascade')
 ]);
 
 export const imageSubjectFieldValuesRelations = relations(imageSubjectFieldValues, ({ one }) => ({
