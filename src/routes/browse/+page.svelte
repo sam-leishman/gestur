@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, ChevronRight, File, FileImage, Folder, House, Plus, Search, Trash2, X } from 'lucide-svelte';
+    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, House, Plus, Search, Square, Trash2, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import { isImageFile } from '$lib/utils/images';
 
@@ -56,6 +56,20 @@
     let addSubjectOpen = $state(false);
     let removingSubjectId = $state<string | null>(null);
     let uncatalogueOpen = $state(false);
+
+    // ── Multi-select state ──────────────────────────────────────────────────
+    let selectMode = $state(false);
+    let selectedPaths = $state<Set<string>>(new Set());
+
+    // ── Bulk add subject modal ─────────────────────────────────────────────
+    let bulkUncatalogueOpen = $state(false);
+    let bulkSubjectOpen = $state(false);
+    let bulkSubjectId = $state<string | null>(null);
+    let bulkSubjectFields = $state<SubjectField[]>([]);
+    let bulkLabel = $state('');
+    let bulkFieldValues = $state<Record<string, string | null>>({});
+    let bulkStatus = $state<'idle' | 'saving' | 'error'>('idle');
+    let bulkErrorMessage = $state<string | null>(null);
 
     // ── Debounce: search ───────────────────────────────────────────────────────
     $effect(() => {
@@ -115,12 +129,12 @@
     // ── Navigation ─────────────────────────────────────────────────────────────
     function navigateInto(name: string) {
         currentPath = [...currentPath, name];
-        clearSelection();
+        exitSelectMode();
     }
 
     function navigateTo(index: number) {
         currentPath = currentPath.slice(0, index);
-        clearSelection();
+        exitSelectMode();
     }
 
     // ── File selection ─────────────────────────────────────────────────────────
@@ -338,6 +352,135 @@
         }, 500);
         labelTimers.set(key, timer);
     }
+
+    // ── Derived: how many selected paths are currently catalogued ──────────────
+    const selectedCataloguedCount = $derived(
+        Array.from(selectedPaths).filter((relPath) => {
+            const name = relPath.split('/').pop()!;
+            return items.some(
+                (item) =>
+                    item.type === 'file' &&
+                    (item.name === name || item.name === relPath) &&
+                    item.catalogued
+            );
+        }).length
+    );
+
+    // ── Helper: relative path for a file item ──────────────────────────────────
+    function getRelPath(item: BrowseItem & { type: 'file' }): string {
+        return search ? item.name : [...currentPath, item.name].join('/');
+    }
+
+    // ── Multi-select actions ───────────────────────────────────────────────────
+    function enterSelectMode() {
+        const preselected = selectedFilePath;
+        clearSelection();
+        selectMode = true;
+        selectedPaths = preselected ? new Set([preselected]) : new Set();
+    }
+
+    function exitSelectMode() {
+        selectMode = false;
+        selectedPaths = new Set();
+        bulkUncatalogueOpen = false;
+        bulkSubjectOpen = false;
+        resetBulkModal();
+        clearSelection();
+    }
+
+    function toggleFileInSelection(relPath: string) {
+        const next = new Set(selectedPaths);
+        if (next.has(relPath)) {
+            next.delete(relPath);
+        } else {
+            next.add(relPath);
+        }
+        selectedPaths = next;
+    }
+
+    function handleFileClick(item: BrowseItem & { type: 'file' }) {
+        const relPath = getRelPath(item);
+        if (selectMode) {
+            toggleFileInSelection(relPath);
+            return;
+        }
+        if (selectedFilePath === relPath) {
+            clearSelection();
+        } else {
+            selectFile(item);
+        }
+    }
+
+    // ── Bulk uncatalogue ───────────────────────────────────────────────────────
+    async function bulkUncatalogue() {
+        bulkUncatalogueOpen = false;
+        const res = await fetch('/api/images/bulk-uncatalogue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePaths: Array.from(selectedPaths) })
+        });
+        if (!res.ok) return;
+        for (const filePath of selectedPaths) {
+            setCatalogued(filePath, false);
+        }
+        exitSelectMode();
+    }
+
+    // ── Bulk add subject ───────────────────────────────────────────────────────
+    function resetBulkModal() {
+        bulkSubjectId = null;
+        bulkSubjectFields = [];
+        bulkLabel = '';
+        bulkFieldValues = {};
+        bulkStatus = 'idle';
+        bulkErrorMessage = null;
+    }
+
+    $effect(() => {
+        const id = bulkSubjectId;
+        if (!id) {
+            bulkSubjectFields = [];
+            return;
+        }
+        fetch(`/api/subjects/${id}/fields`)
+            .then((r) => r.json())
+            .then((data: Omit<SubjectField, 'value'>[]) => {
+                bulkSubjectFields = data.map((f) => ({ ...f, value: null }));
+            })
+            .catch(() => {});
+    });
+
+    async function bulkAddSubject() {
+        if (!bulkSubjectId || selectedPaths.size === 0) return;
+        bulkStatus = 'saving';
+        bulkErrorMessage = null;
+        try {
+            const res = await fetch('/api/images/bulk-subjects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filePaths: Array.from(selectedPaths),
+                    subjectId: bulkSubjectId,
+                    label: bulkLabel.trim() || null,
+                    fieldValues: bulkFieldValues
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                bulkErrorMessage = data.error ?? 'Failed to add subjects';
+                bulkStatus = 'error';
+                return;
+            }
+            for (const filePath of selectedPaths) {
+                setCatalogued(filePath, true);
+            }
+            bulkSubjectOpen = false;
+            exitSelectMode();
+        } catch {
+            bulkErrorMessage = 'An unexpected error occurred';
+            bulkStatus = 'error';
+        }
+    }
 </script>
 
 <div class="p-4 flex flex-col gap-4 h-[calc(100vh-var(--header-height))]">
@@ -371,38 +514,48 @@
         <!-- File browser panel -->
         <div class="
             bg-canvas rounded-lg p-4 flex flex-col gap-3 min-h-0
-            {selectedFilePath ? 'hidden lg:flex lg:w-80 lg:shrink-0' : 'flex flex-1'}
+            {selectedFilePath && !selectMode ? 'hidden lg:flex lg:w-80 lg:shrink-0' : selectMode ? 'flex flex-1 lg:flex-none lg:w-80 lg:shrink-0' : 'flex flex-1'}
         ">
-            <!-- Breadcrumb (hidden during search) -->
-            <nav class="flex items-center gap-1 text-sm flex-wrap min-h-6 {search ? 'hidden' : ''}" aria-label="Breadcrumb">
+            <!-- Breadcrumb + select toggle -->
+            <div class="flex items-center gap-2 min-h-6">
+                <nav class="flex items-center gap-1 text-sm flex-wrap flex-1 min-w-0 {search ? 'hidden' : ''}" aria-label="Breadcrumb">
+                    <button
+                        type="button"
+                        onclick={() => navigateTo(0)}
+                        class="flex items-center gap-1 text-warm-gray hover:text-ink transition-colors"
+                        aria-label="Images root"
+                    >
+                        <House class="w-4 h-4" />
+                    </button>
+                    {#each currentPath as segment, i (i)}
+                        <ChevronRight class="w-3 h-3 text-muted shrink-0" />
+                        {#if i === currentPath.length - 1}
+                            <span class="text-ink font-medium truncate max-w-48">{segment}</span>
+                        {:else}
+                            <button
+                                type="button"
+                                onclick={() => navigateTo(i + 1)}
+                                class="text-warm-gray hover:text-ink transition-colors truncate max-w-48"
+                            >
+                                {segment}
+                            </button>
+                        {/if}
+                    {/each}
+                </nav>
                 <button
                     type="button"
-                    onclick={() => navigateTo(0)}
-                    class="flex items-center gap-1 text-warm-gray hover:text-ink transition-colors"
-                    aria-label="Images root"
+                    onclick={() => selectMode ? exitSelectMode() : enterSelectMode()}
+                    class="p-1.5 rounded-lg transition-colors shrink-0 {selectMode ? 'text-terracotta bg-terracotta-tint' : 'text-warm-gray hover:text-ink hover:bg-pressed'}"
+                    aria-label={selectMode ? 'Exit select mode' : 'Select multiple files'}
                 >
-                    <House class="w-4 h-4" />
+                    <CheckSquare class="w-4 h-4" />
                 </button>
-                {#each currentPath as segment, i (i)}
-                    <ChevronRight class="w-3 h-3 text-muted shrink-0" />
-                    {#if i === currentPath.length - 1}
-                        <span class="text-ink font-medium truncate max-w-48">{segment}</span>
-                    {:else}
-                        <button
-                            type="button"
-                            onclick={() => navigateTo(i + 1)}
-                            class="text-warm-gray hover:text-ink transition-colors truncate max-w-48"
-                        >
-                            {segment}
-                        </button>
-                    {/if}
-                {/each}
-            </nav>
+            </div>
 
             {#if !search}<div class="border-t border-muted"></div>{/if}
 
             <!-- Items list -->
-            <div class="flex-1 overflow-y-auto min-h-0">
+            <div class="flex-1 overflow-y-auto min-h-0 {selectMode && selectedPaths.size > 0 ? 'pb-20 lg:pb-0' : ''}">
                 {#if loading}
                     <div class="flex flex-col divide-y divide-muted">
                         {#each Array(6) as _, i (i)}
@@ -431,16 +584,22 @@
                                 </button>
                             {:else}
                                 {@const relPath = search ? item.name : [...currentPath, item.name].join('/')}
-                                {@const isSelected = selectedFilePath === relPath}
+                                {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
                                 <button
                                     type="button"
-                                    onclick={() => isSelected ? clearSelection() : selectFile(item)}
+                                    onclick={() => handleFileClick(item)}
                                     class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full
                                         {isSelected
                                             ? 'bg-terracotta-tint border border-terracotta/30'
                                             : 'hover:bg-pressed'}"
                                 >
-                                    {#if isImageFile(item.name)}
+                                    {#if selectMode}
+                                        {#if isSelected}
+                                            <CheckSquare class="w-5 h-5 text-terracotta shrink-0" />
+                                        {:else}
+                                            <Square class="w-5 h-5 text-warm-gray shrink-0" />
+                                        {/if}
+                                    {:else if isImageFile(item.name)}
                                         <FileImage class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
                                     {:else}
                                         <File class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
@@ -459,8 +618,63 @@
             </div>
         </div>
 
+        <!-- Bulk actions panel (shown in select mode on desktop) -->
+        {#if selectMode}
+            <div class="hidden lg:flex flex-1 flex-col gap-3 min-h-0 min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-ink flex-1">
+                        {selectedPaths.size}
+                        {selectedPaths.size === 1 ? 'file' : 'files'} selected
+                    </span>
+                    {#if selectedPaths.size > 0}
+                        <button
+                            type="button"
+                            onclick={() => { selectedPaths = new Set(); }}
+                            class="text-xs text-warm-gray hover:text-ink transition-colors"
+                        >
+                            Deselect all
+                        </button>
+                    {/if}
+                    <button
+                        type="button"
+                        onclick={exitSelectMode}
+                        class="p-1.5 text-warm-gray hover:text-ink hover:bg-pressed rounded-lg transition-colors"
+                        aria-label="Exit select mode"
+                    >
+                        <X class="w-4 h-4" />
+                    </button>
+                </div>
+                <div class="bg-canvas rounded-lg border border-muted p-4 flex flex-col gap-3">
+                    {#if selectedPaths.size === 0}
+                        <p class="text-sm text-warm-gray py-2">Select files from the list to get started.</p>
+                    {:else}
+                        <p class="text-sm text-warm-gray">
+                            {selectedPaths.size}
+                            {selectedPaths.size === 1 ? 'image' : 'images'} selected:
+                        </p>
+                        <button
+                            type="button"
+                            onclick={() => { resetBulkModal(); bulkSubjectOpen = true; }}
+                            class="btn btn-primary flex items-center gap-2 self-start"
+                        >
+                            <Plus class="w-4 h-4" />
+                            Add Subject
+                        </button>
+                        {#if selectedCataloguedCount > 0}
+                            <button
+                                type="button"
+                                onclick={() => { bulkUncatalogueOpen = true; }}
+                                class="self-start text-xs px-2.5 py-1 rounded-lg border border-muted text-warm-gray hover:text-red-600 hover:border-red-300 transition-colors"
+                            >
+                                Uncatalogue {selectedCataloguedCount} {selectedCataloguedCount === 1 ? 'image' : 'images'}
+                            </button>
+                        {/if}
+                    {/if}
+                </div>
+            </div>
+
         <!-- Detail panel (shown when a file is selected) -->
-        {#if selectedFilePath}
+        {:else if selectedFilePath}
             <div class="flex-1 flex flex-col gap-3 min-h-0 min-w-0">
 
                 <!-- Panel header: filename + close -->
@@ -688,6 +902,33 @@
     </div>
 </div>
 
+<!-- Mobile sticky bottom bar (shown in select mode when files are selected) -->
+{#if selectMode && selectedPaths.size > 0}
+    <div class="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-canvas border-t border-muted px-4 py-3 flex items-center gap-3 shadow-lg">
+        <span class="text-sm font-medium text-ink flex-1">
+            {selectedPaths.size} {selectedPaths.size === 1 ? 'file' : 'files'} selected
+        </span>
+        <button type="button" onclick={exitSelectMode} class="btn">Cancel</button>
+        {#if selectedCataloguedCount > 0}
+            <button
+                type="button"
+                onclick={() => { bulkUncatalogueOpen = true; }}
+                class="text-xs px-2.5 py-1 rounded-lg border border-muted text-warm-gray hover:text-red-600 hover:border-red-300 transition-colors"
+            >
+                Uncatalogue {selectedCataloguedCount}
+            </button>
+        {/if}
+        <button
+            type="button"
+            onclick={() => { resetBulkModal(); bulkSubjectOpen = true; }}
+            class="btn btn-primary flex items-center gap-2"
+        >
+            <Plus class="w-4 h-4" />
+            Add Subject
+        </button>
+    </div>
+{/if}
+
 <Modal bind:open={uncatalogueOpen} title="Uncatalogue image?">
     <p class="text-sm text-warm-gray">
         This will remove <span class="font-medium text-ink">{selectedFileName}</span> from the catalogue,
@@ -709,4 +950,147 @@
             Uncatalogue
         </button>
     </div>
+</Modal>
+
+<Modal bind:open={bulkUncatalogueOpen} title="Uncatalogue {selectedCataloguedCount} {selectedCataloguedCount === 1 ? 'image' : 'images'}?">
+    <p class="text-sm text-warm-gray">
+        This will remove <span class="font-medium text-ink">{selectedCataloguedCount} {selectedCataloguedCount === 1 ? 'image' : 'images'}</span> from the catalogue,
+        including all linked subjects and field values. Files that aren't catalogued will be unaffected.
+        The files themselves won't be deleted.
+    </p>
+    <div class="flex justify-end gap-2 mt-2">
+        <button type="button" onclick={() => { bulkUncatalogueOpen = false; }} class="btn">Cancel</button>
+        <button type="button" onclick={bulkUncatalogue} class="btn bg-red-600 hover:bg-red-700 text-white transition-colors">
+            Uncatalogue
+        </button>
+    </div>
+</Modal>
+
+<Modal
+    bind:open={bulkSubjectOpen}
+    title="Add subject to {selectedPaths.size} {selectedPaths.size === 1 ? 'image' : 'images'}"
+    onclose={resetBulkModal}
+>
+    {#if !bulkSubjectId}
+        <div class="flex flex-col gap-3">
+            <p class="text-sm text-warm-gray">Choose a subject to add to all selected images:</p>
+            {#if allSubjects.length === 0}
+                <p class="text-sm text-warm-gray">No subjects defined yet.</p>
+            {:else}
+                <div class="max-h-56 overflow-y-auto flex flex-col border border-muted rounded-lg divide-y divide-muted">
+                    {#each allSubjects as subject (subject.id)}
+                        <button
+                            type="button"
+                            onclick={() => { bulkSubjectId = subject.id; }}
+                            class="text-left px-3 py-2.5 text-sm text-ink hover:bg-pressed transition-colors first:rounded-t-lg last:rounded-b-lg"
+                        >
+                            {subject.name}
+                        </button>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+        <div class="flex justify-end mt-4">
+            <button type="button" onclick={() => { bulkSubjectOpen = false; }} class="btn">Cancel</button>
+        </div>
+    {:else}
+        <div class="flex flex-col gap-3">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-medium text-warm-gray bg-canvas border border-muted rounded px-1.5 py-0.5">
+                    {allSubjects.find((s) => s.id === bulkSubjectId)?.name}
+                </span>
+                <button
+                    type="button"
+                    onclick={resetBulkModal}
+                    class="text-xs text-warm-gray hover:text-ink underline transition-colors"
+                >
+                    Change
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-1">
+                <label for="bulk-label" class="text-xs font-medium text-warm-gray">Label</label>
+                <input
+                    id="bulk-label"
+                    type="text"
+                    bind:value={bulkLabel}
+                    placeholder="Add label…"
+                    class="rounded-lg border-muted text-sm w-full"
+                />
+            </div>
+
+            {#each bulkSubjectFields as field (field.id)}
+                <div class="flex flex-col gap-1">
+                    <label for="bulk-field-{field.id}" class="text-xs font-medium text-warm-gray flex items-center gap-1">
+                        {field.name}
+                        {#if field.required}<span class="text-terracotta">*</span>{/if}
+                    </label>
+                    {#if field.type === 'boolean'}
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input
+                                id="bulk-field-{field.id}"
+                                type="checkbox"
+                                checked={bulkFieldValues[field.id] === 'true'}
+                                onchange={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.checked ? 'true' : 'false' }; }}
+                                class="rounded border-muted"
+                            />
+                            <span class="text-sm text-ink">Yes</span>
+                        </label>
+                    {:else if field.type === 'select'}
+                        <select
+                            id="bulk-field-{field.id}"
+                            value={bulkFieldValues[field.id] ?? ''}
+                            onchange={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
+                            class="rounded-lg border-muted text-sm w-full"
+                        >
+                            <option value="">— Select —</option>
+                            {#each field.options ?? [] as option (option)}
+                                <option value={option}>{option}</option>
+                            {/each}
+                        </select>
+                    {:else if field.type === 'number'}
+                        <input
+                            id="bulk-field-{field.id}"
+                            type="number"
+                            value={bulkFieldValues[field.id] ?? ''}
+                            oninput={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
+                            placeholder="Enter number…"
+                            class="rounded-lg border-muted text-sm w-full"
+                        />
+                    {:else}
+                        <input
+                            id="bulk-field-{field.id}"
+                            type="text"
+                            value={bulkFieldValues[field.id] ?? ''}
+                            oninput={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
+                            placeholder="Enter text…"
+                            class="rounded-lg border-muted text-sm w-full"
+                        />
+                    {/if}
+                </div>
+            {/each}
+
+            {#if bulkErrorMessage}
+                <p class="text-sm text-red-600">{bulkErrorMessage}</p>
+            {/if}
+        </div>
+
+        <div class="flex justify-end gap-2 mt-4">
+            <button
+                type="button"
+                onclick={() => { bulkSubjectOpen = false; resetBulkModal(); }}
+                class="btn"
+            >
+                Cancel
+            </button>
+            <button
+                type="button"
+                onclick={bulkAddSubject}
+                disabled={bulkStatus === 'saving'}
+                class="btn btn-primary"
+            >
+                {bulkStatus === 'saving' ? 'Adding…' : `Add to ${selectedPaths.size} ${selectedPaths.size === 1 ? 'image' : 'images'}`}
+            </button>
+        </div>
+    {/if}
 </Modal>
