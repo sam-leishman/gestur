@@ -23,6 +23,7 @@
         imageSubjectId: string;
         subjectId: string;
         subjectName: string;
+        label: string | null;
         fields: SubjectField[];
     };
     type ImageData = {
@@ -131,6 +132,8 @@
 
         for (const timer of fieldTimers.values()) clearTimeout(timer);
         fieldTimers.clear();
+        for (const timer of labelTimers.values()) clearTimeout(timer);
+        labelTimers.clear();
 
         selectedFilePath = relPath;
         selectedFileName = relPath.split('/').pop()!;
@@ -157,6 +160,8 @@
     function clearSelection() {
         for (const timer of fieldTimers.values()) clearTimeout(timer);
         fieldTimers.clear();
+        for (const timer of labelTimers.values()) clearTimeout(timer);
+        labelTimers.clear();
         selectedFilePath = null;
         selectedFileName = null;
         imageData = null;
@@ -307,9 +312,32 @@
         setCatalogued(path, false);
     }
 
-    // ── Derived: available subjects to add (excluding already linked) ──────────
-    const linkedSubjectIds = $derived(new Set((imageData?.subjects ?? []).map((s) => s.subjectId)));
-    const availableSubjects = $derived(allSubjects.filter((s) => !linkedSubjectIds.has(s.id)));
+    // ── Label auto-save ────────────────────────────────────────────────────────
+    const labelTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function onLabelChange(linkedSubject: LinkedSubject, value: string) {
+        if (!imageData) return;
+        const imageId = imageData.id;
+        const key = linkedSubject.imageSubjectId;
+
+        imageData = {
+            ...imageData,
+            subjects: imageData.subjects.map((s) =>
+                s.imageSubjectId === key ? { ...s, label: value || null } : s
+            )
+        };
+
+        if (labelTimers.has(key)) clearTimeout(labelTimers.get(key)!);
+        const timer = setTimeout(async () => {
+            labelTimers.delete(key);
+            await fetch(`/api/images/${imageId}/subjects/${key}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ label: value || null })
+            });
+        }, 500);
+        labelTimers.set(key, timer);
+    }
 </script>
 
 <div class="p-4 flex flex-col gap-4 h-[calc(100vh-var(--header-height))]">
@@ -530,13 +558,11 @@
                                             aria-hidden="true"
                                         ></div>
                                         <div class="absolute right-0 z-20 mt-1 w-52 bg-canvas border border-muted rounded-lg shadow-lg overflow-hidden">
-                                            {#if availableSubjects.length === 0}
-                                                <p class="text-sm text-warm-gray px-3 py-2">
-                                                    {allSubjects.length === 0 ? 'No subjects defined' : 'All subjects already linked'}
-                                                </p>
+                                            {#if allSubjects.length === 0}
+                                                <p class="text-sm text-warm-gray px-3 py-2">No subjects defined</p>
                                             {:else}
                                                 <div class="max-h-48 overflow-y-auto">
-                                                    {#each availableSubjects as subject (subject.id)}
+                                                    {#each allSubjects as subject (subject.id)}
                                                         <button
                                                             type="button"
                                                             onclick={() => addSubject(subject.id)}
@@ -563,14 +589,23 @@
                             {:else}
                                 <div class="flex flex-col gap-3">
                                     {#each imageData.subjects as linkedSubject (linkedSubject.imageSubjectId)}
+                                        {@const instanceCount = imageData.subjects.filter((s) => s.subjectId === linkedSubject.subjectId).length}
+                                        {@const instanceOrdinal = instanceCount > 1 ? imageData.subjects.filter((s) => s.subjectId === linkedSubject.subjectId).findIndex((s) => s.imageSubjectId === linkedSubject.imageSubjectId) + 1 : null}
                                         <div class="border border-muted rounded-lg overflow-hidden">
                                             <!-- Subject header -->
-                                            <div class="flex items-center justify-between px-3 py-2 bg-pressed">
-                                                <span class="text-sm font-medium text-ink">{linkedSubject.subjectName}</span>
+                                            <div class="flex items-center gap-2 px-3 py-2 bg-pressed">
+                                                <span class="text-xs font-medium text-warm-gray shrink-0 bg-canvas border border-muted rounded px-1.5 py-0.5">{linkedSubject.subjectName}{instanceOrdinal ? ` #${instanceOrdinal}` : ''}</span>
+                                                <input
+                                                    type="text"
+                                                    value={linkedSubject.label ?? ''}
+                                                    oninput={(e) => onLabelChange(linkedSubject, e.currentTarget.value)}
+                                                    placeholder="Add label…"
+                                                    class="flex-1 min-w-0 text-sm font-medium text-ink bg-transparent border-0 p-0 focus:ring-0 placeholder:text-muted"
+                                                />
                                                 <button
                                                     type="button"
                                                     onclick={() => removeSubject(linkedSubject.imageSubjectId)}
-                                                    class="p-1 rounded transition-colors
+                                                    class="p-1 rounded transition-colors shrink-0
                                                         {removingSubjectId === linkedSubject.imageSubjectId
                                                             ? 'text-red-600 bg-red-50'
                                                             : 'text-warm-gray hover:text-red-600'}"

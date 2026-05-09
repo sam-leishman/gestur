@@ -104,9 +104,9 @@ export const imageSubjects = sqliteTable('image_subjects', {
 		.primaryKey()
 		.$defaultFn(() => crypto.randomUUID()),
 	imageId: text('image_id').notNull().references(() => images.id, { onDelete: 'cascade' }),
-	subjectId: text('subject_id').notNull().references(() => subjects.id)
+	subjectId: text('subject_id').notNull().references(() => subjects.id),
+	label: text('label')
 }, (table) => [
-	unique('image_subjects_unique').on(table.imageId, table.subjectId),
 	unique('image_subjects_id_subject_unique').on(table.id, table.subjectId)
 ]);
 
