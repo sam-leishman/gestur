@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { User, House, Image, Database } from "lucide-svelte";
+	import { PencilLine, Image, Database } from "lucide-svelte";
 
     let { isOpen = $bindable(true) } = $props();
 
@@ -10,8 +10,8 @@
 
     const navItems = $derived([
         {
-            label: 'Home',
-            icon: House,
+            label: 'Draw',
+            icon: PencilLine,
             href: '/',
             isActive: isActive('/')
         },
@@ -26,12 +26,6 @@
             icon: Database,
             href: '/data',
             isActive: isActive('/data')
-        },
-        {
-            label: 'Profile',
-            icon: User,
-            href: '/profile',
-            isActive: isActive('/profile')
         }
     ]);
 </script>
