@@ -60,6 +60,7 @@
     // ── Multi-select state ──────────────────────────────────────────────────
     let selectMode = $state(false);
     let selectedPaths = $state<Set<string>>(new Set());
+    let anchorIndex = $state(-1);
 
     // ── Keyboard navigation state ───────────────────────────────────────────
     let focusedIndex = $state(-1);
@@ -74,6 +75,7 @@
     let bulkFieldValues = $state<Record<string, string | null>>({});
     let bulkStatus = $state<'idle' | 'saving' | 'error'>('idle');
     let bulkErrorMessage = $state<string | null>(null);
+    let bulkSuccessMessage = $state<string | null>(null);
 
     // ── Debounce: search ───────────────────────────────────────────────────────
     $effect(() => {
@@ -378,19 +380,30 @@
         return search ? item.name : [...currentPath, item.name].join('/');
     }
 
+    // ── Derived: all file items and select-all state ────────────────────────────
+    const fileItems = $derived(
+        items.filter((i): i is BrowseItem & { type: 'file' } => i.type === 'file')
+    );
+    const allFilesSelected = $derived(
+        fileItems.length > 0 && fileItems.every((i) => selectedPaths.has(getRelPath(i)))
+    );
+
     // ── Multi-select actions ───────────────────────────────────────────────────
     function enterSelectMode() {
         const preselected = selectedFilePath;
         clearSelection();
         selectMode = true;
+        anchorIndex = -1;
         selectedPaths = preselected ? new Set([preselected]) : new Set();
     }
 
     function exitSelectMode() {
         selectMode = false;
         selectedPaths = new Set();
+        anchorIndex = -1;
         bulkUncatalogueOpen = false;
         bulkSubjectOpen = false;
+        bulkSuccessMessage = null;
         resetBulkModal();
         clearSelection();
     }
@@ -405,12 +418,52 @@
         selectedPaths = next;
     }
 
-    function handleFileClick(item: BrowseItem & { type: 'file' }, index: number) {
+    function selectAll() {
+        selectedPaths = new Set(fileItems.map((i) => getRelPath(i)));
+    }
+
+    function handleFileClick(item: BrowseItem & { type: 'file' }, index: number, event: MouseEvent) {
         const relPath = getRelPath(item);
-        if (selectMode) {
-            toggleFileInSelection(relPath);
+        const isShift = event.shiftKey;
+        const isMeta = event.metaKey || event.ctrlKey;
+
+        if (isShift) {
+            if (!selectMode) {
+                const prevIdx = items.findIndex(
+                    (it) => it.type === 'file' && getRelPath(it) === selectedFilePath
+                );
+                enterSelectMode();
+                if (prevIdx !== -1) anchorIndex = prevIdx;
+            }
+            const from = anchorIndex !== -1 ? anchorIndex : index;
+            const lo = Math.min(from, index);
+            const hi = Math.max(from, index);
+            const next = new Set(selectedPaths);
+            for (let i = lo; i <= hi; i++) {
+                const rangeItem = items[i];
+                if (rangeItem && rangeItem.type === 'file') next.add(getRelPath(rangeItem));
+            }
+            selectedPaths = next;
+            focusedIndex = index;
             return;
         }
+
+        if (isMeta) {
+            if (!selectMode) enterSelectMode();
+            toggleFileInSelection(relPath);
+            anchorIndex = index;
+            focusedIndex = index;
+            return;
+        }
+
+        anchorIndex = index;
+
+        if (selectMode) {
+            toggleFileInSelection(relPath);
+            focusedIndex = index;
+            return;
+        }
+
         if (selectedFilePath === relPath) {
             focusedIndex = -1;
             clearSelection();
@@ -487,10 +540,13 @@
             body: JSON.stringify({ filePaths: Array.from(selectedPaths) })
         });
         if (!res.ok) return;
+        const count = selectedPaths.size;
         for (const filePath of selectedPaths) {
             setCatalogued(filePath, false);
         }
-        exitSelectMode();
+        selectedPaths = new Set();
+        bulkSuccessMessage = `Uncatalogued ${count} ${count === 1 ? 'image' : 'images'}`;
+        setTimeout(() => { bulkSuccessMessage = null; }, 3000);
     }
 
     // ── Bulk add subject ───────────────────────────────────────────────────────
@@ -538,11 +594,14 @@
                 bulkStatus = 'error';
                 return;
             }
+            const count = selectedPaths.size;
             for (const filePath of selectedPaths) {
                 setCatalogued(filePath, true);
             }
             bulkSubjectOpen = false;
-            exitSelectMode();
+            resetBulkModal();
+            bulkSuccessMessage = `Subject added to ${count} ${count === 1 ? 'image' : 'images'}`;
+            setTimeout(() => { bulkSuccessMessage = null; }, 3000);
         } catch {
             bulkErrorMessage = 'An unexpected error occurred';
             bulkStatus = 'error';
@@ -613,7 +672,7 @@
                     type="button"
                     onclick={() => selectMode ? exitSelectMode() : enterSelectMode()}
                     class="p-1.5 rounded-lg transition-colors shrink-0 {selectMode ? 'text-terracotta bg-terracotta-tint' : 'text-warm-gray hover:text-ink hover:bg-pressed'}"
-                    aria-label={selectMode ? 'Exit select mode' : 'Select multiple files'}
+                    aria-label={selectMode ? 'Exit select mode' : 'Select multiple images'}
                 >
                     <CheckSquare class="w-4 h-4" />
                 </button>
@@ -660,7 +719,7 @@
                                 <button
                                     type="button"
                                     data-kb-index={i}
-                                    onclick={() => handleFileClick(item, i)}
+                                    onclick={(e) => handleFileClick(item, i, e)}
                                     class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
                                         {isSelected
                                             ? 'bg-terracotta-tint border border-terracotta/30'
@@ -697,8 +756,17 @@
                 <div class="flex items-center gap-2">
                     <span class="text-sm font-medium text-ink flex-1">
                         {selectedPaths.size}
-                        {selectedPaths.size === 1 ? 'file' : 'files'} selected
+                        {selectedPaths.size === 1 ? 'image' : 'images'} selected
                     </span>
+                    {#if !allFilesSelected && fileItems.length > 0}
+                        <button
+                            type="button"
+                            onclick={selectAll}
+                            class="text-xs text-warm-gray hover:text-ink transition-colors"
+                        >
+                            Select all
+                        </button>
+                    {/if}
                     {#if selectedPaths.size > 0}
                         <button
                             type="button"
@@ -719,12 +787,15 @@
                 </div>
                 <div class="bg-canvas rounded-lg border border-muted p-4 flex flex-col gap-3">
                     {#if selectedPaths.size === 0}
-                        <p class="text-sm text-warm-gray py-2">Select files from the list to get started.</p>
+                        {#if bulkSuccessMessage}
+                            <p class="text-sm text-terracotta">{bulkSuccessMessage}</p>
+                        {:else}
+                            <p class="text-sm text-warm-gray py-2">Select images from the list to get started.</p>
+                        {/if}
                     {:else}
-                        <p class="text-sm text-warm-gray">
-                            {selectedPaths.size}
-                            {selectedPaths.size === 1 ? 'image' : 'images'} selected:
-                        </p>
+                        {#if bulkSuccessMessage}
+                            <p class="text-sm text-terracotta">{bulkSuccessMessage}</p>
+                        {/if}
                         <button
                             type="button"
                             onclick={() => { resetBulkModal(); bulkSubjectOpen = true; }}
@@ -739,7 +810,9 @@
                                 onclick={() => { bulkUncatalogueOpen = true; }}
                                 class="self-start text-xs px-2.5 py-1 rounded-lg border border-muted text-warm-gray hover:text-red-600 hover:border-red-300 transition-colors"
                             >
-                                Uncatalogue {selectedCataloguedCount} {selectedCataloguedCount === 1 ? 'image' : 'images'}
+                                {selectedCataloguedCount === selectedPaths.size
+                                    ? `Uncatalogue ${selectedCataloguedCount} ${selectedCataloguedCount === 1 ? 'image' : 'images'}`
+                                    : `Uncatalogue ${selectedCataloguedCount} of ${selectedPaths.size} images`}
                             </button>
                         {/if}
                     {/if}
@@ -979,7 +1052,7 @@
 {#if selectMode && selectedPaths.size > 0}
     <div class="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-canvas border-t border-muted px-4 py-3 flex items-center gap-3 shadow-lg">
         <span class="text-sm font-medium text-ink flex-1">
-            {selectedPaths.size} {selectedPaths.size === 1 ? 'file' : 'files'} selected
+            {selectedPaths.size} {selectedPaths.size === 1 ? 'image' : 'images'} selected
         </span>
         <button type="button" onclick={exitSelectMode} class="btn">Cancel</button>
         {#if selectedCataloguedCount > 0}
@@ -988,7 +1061,9 @@
                 onclick={() => { bulkUncatalogueOpen = true; }}
                 class="text-xs px-2.5 py-1 rounded-lg border border-muted text-warm-gray hover:text-red-600 hover:border-red-300 transition-colors"
             >
-                Uncatalogue {selectedCataloguedCount}
+                {selectedCataloguedCount === selectedPaths.size
+                    ? `Uncatalogue ${selectedCataloguedCount}`
+                    : `Uncatalogue ${selectedCataloguedCount} of ${selectedPaths.size}`}
             </button>
         {/if}
         <button
@@ -1069,16 +1144,17 @@
     {:else}
         <div class="flex flex-col gap-3">
             <div class="flex items-center gap-2">
-                <span class="text-xs font-medium text-warm-gray bg-canvas border border-muted rounded px-1.5 py-0.5">
-                    {allSubjects.find((s) => s.id === bulkSubjectId)?.name}
-                </span>
                 <button
                     type="button"
                     onclick={resetBulkModal}
-                    class="text-xs text-warm-gray hover:text-ink underline transition-colors"
+                    class="flex items-center gap-1 text-xs text-warm-gray hover:text-ink transition-colors shrink-0"
                 >
-                    Change
+                    <ArrowLeft class="w-3 h-3" />
+                    Back
                 </button>
+                <span class="text-xs font-medium text-warm-gray bg-canvas border border-muted rounded px-1.5 py-0.5">
+                    {allSubjects.find((s) => s.id === bulkSubjectId)?.name}
+                </span>
             </div>
 
             <div class="flex flex-col gap-1">
