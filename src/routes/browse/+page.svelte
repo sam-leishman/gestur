@@ -61,6 +61,10 @@
     let selectMode = $state(false);
     let selectedPaths = $state<Set<string>>(new Set());
 
+    // ── Keyboard navigation state ───────────────────────────────────────────
+    let focusedIndex = $state(-1);
+    let listContainer: HTMLDivElement | null = null;
+
     // ── Bulk add subject modal ─────────────────────────────────────────────
     let bulkUncatalogueOpen = $state(false);
     let bulkSubjectOpen = $state(false);
@@ -94,6 +98,7 @@
 
         loading = true;
         fetchError = null;
+        focusedIndex = -1;
 
         const controller = new AbortController();
         const params = new URLSearchParams({ path, filter: f, search: s });
@@ -129,11 +134,13 @@
     // ── Navigation ─────────────────────────────────────────────────────────────
     function navigateInto(name: string) {
         currentPath = [...currentPath, name];
+        focusedIndex = -1;
         exitSelectMode();
     }
 
     function navigateTo(index: number) {
         currentPath = currentPath.slice(0, index);
+        focusedIndex = -1;
         exitSelectMode();
     }
 
@@ -398,18 +405,78 @@
         selectedPaths = next;
     }
 
-    function handleFileClick(item: BrowseItem & { type: 'file' }) {
+    function handleFileClick(item: BrowseItem & { type: 'file' }, index: number) {
         const relPath = getRelPath(item);
         if (selectMode) {
             toggleFileInSelection(relPath);
             return;
         }
         if (selectedFilePath === relPath) {
+            focusedIndex = -1;
             clearSelection();
         } else {
+            focusedIndex = index;
             selectFile(item);
         }
     }
+
+    // ── Keyboard navigation ────────────────────────────────────────────────
+    function navigateToIndex(index: number) {
+        if (items.length === 0) return;
+        focusedIndex = Math.max(0, Math.min(index, items.length - 1));
+        const item = items[focusedIndex];
+        if (item.type === 'file') {
+            selectFile(item);
+        } else {
+            clearSelection();
+        }
+        listContainer
+            ?.querySelector<HTMLElement>(`[data-kb-index="${focusedIndex}"]`)
+            ?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function handleListKeydown(e: KeyboardEvent) {
+        const target = e.target as HTMLElement;
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (selectMode || loading || items.length === 0) return;
+        if (uncatalogueOpen || addSubjectOpen || bulkUncatalogueOpen || bulkSubjectOpen) return;
+
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                navigateToIndex(focusedIndex < 0 ? 0 : focusedIndex + 1);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                navigateToIndex(focusedIndex < 0 ? items.length - 1 : focusedIndex - 1);
+                break;
+            case 'ArrowRight':
+            case 'Enter': {
+                const focused = focusedIndex >= 0 ? items[focusedIndex] : null;
+                if (focused?.type === 'dir') {
+                    e.preventDefault();
+                    navigateInto(focused.name);
+                }
+                break;
+            }
+            case 'ArrowLeft':
+                if (currentPath.length > 0 && !search) {
+                    e.preventDefault();
+                    navigateTo(currentPath.length - 1);
+                }
+                break;
+            case 'Escape':
+                clearSelection();
+                focusedIndex = -1;
+                break;
+        }
+    }
+
+    $effect(() => {
+        document.addEventListener('keydown', handleListKeydown);
+        return () => document.removeEventListener('keydown', handleListKeydown);
+    });
 
     // ── Bulk uncatalogue ───────────────────────────────────────────────────────
     async function bulkUncatalogue() {
@@ -555,7 +622,10 @@
             {#if !search}<div class="border-t border-muted"></div>{/if}
 
             <!-- Items list -->
-            <div class="flex-1 overflow-y-auto min-h-0 {selectMode && selectedPaths.size > 0 ? 'pb-20 lg:pb-0' : ''}">
+            <div
+                bind:this={listContainer}
+                class="flex-1 overflow-y-auto min-h-0 {selectMode && selectedPaths.size > 0 ? 'pb-20 lg:pb-0' : ''}"
+            >
                 {#if loading}
                     <div class="flex flex-col divide-y divide-muted">
                         {#each Array(6) as _, i (i)}
@@ -571,12 +641,14 @@
                     <p class="text-warm-gray text-center py-8">No items found</p>
                 {:else}
                     <div class="flex flex-col divide-y divide-muted">
-                        {#each items as item (item.name)}
+                        {#each items as item, i (item.name)}
                             {#if item.type === 'dir'}
                                 <button
                                     type="button"
+                                    data-kb-index={i}
                                     onclick={() => navigateInto(item.name)}
-                                    class="flex items-center gap-3 py-3 px-2 hover:bg-pressed rounded-lg transition-colors text-left w-full"
+                                    class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
+                                        {focusedIndex === i ? 'bg-pressed' : 'hover:bg-pressed'}"
                                 >
                                     <Folder class="w-5 h-5 text-terracotta shrink-0" />
                                     <span class="text-ink flex-1 truncate">{item.name}</span>
@@ -587,8 +659,9 @@
                                 {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
                                 <button
                                     type="button"
-                                    onclick={() => handleFileClick(item)}
-                                    class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full
+                                    data-kb-index={i}
+                                    onclick={() => handleFileClick(item, i)}
+                                    class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
                                         {isSelected
                                             ? 'bg-terracotta-tint border border-terracotta/30'
                                             : 'hover:bg-pressed'}"
