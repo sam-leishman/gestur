@@ -2,6 +2,7 @@
     import { Pause, Play, SkipForward, Square } from 'lucide-svelte';
     import { fade } from 'svelte/transition';
     import type { SessionImage } from '$lib/types';
+    import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
 
     let {
         open = $bindable(false),
@@ -17,12 +18,16 @@
 
     // ── State ──────────────────────────────────────────────────────────────────
     let drawnCount = $state(0);
+    let drawnImages = $state<SessionImage[]>([]);
     let paused = $state(false);
     let complete = $state(false);
     let controlsVisible = $state(true);
     let elapsed = $state(0); // ms elapsed on current image
     let currentImage = $state<SessionImage | null>(null);
     let pauseIndicator = $state<'pause' | 'play' | null>(null);
+    let stoppedEarly = $state(false);
+    let imageModalOpen = $state(false);
+    let selectedImage = $state<SessionImage | null>(null);
 
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
@@ -56,11 +61,15 @@
 
     function startSession() {
         drawnCount = 0;
+        drawnImages = [];
         elapsed = 0;
         paused = false;
         complete = false;
         controlsVisible = true;
         pauseIndicator = null;
+        stoppedEarly = false;
+        imageModalOpen = false;
+        selectedImage = null;
         pool = shuffle(images);
         poolIndex = 0;
         currentImage = pool[poolIndex] ?? null;
@@ -74,6 +83,7 @@
             if (paused) return;
             elapsed += TICK_MS;
             if (elapsed >= durationSeconds * 1000) {
+                if (currentImage) drawnImages = [...drawnImages, currentImage];
                 drawnCount++;
                 if (drawnCount >= targetCount) {
                     endSession();
@@ -103,6 +113,7 @@
 
     function endSession() {
         stopTimer();
+        stoppedEarly = false;
         complete = true;
     }
 
@@ -118,14 +129,22 @@
     }
 
     function handleStop() {
+        if (complete) { open = false; return; }
         stopTimer();
+        if (currentImage) drawnImages = [...drawnImages, currentImage];
+        if (drawnImages.length === 0) { open = false; return; }
+        stoppedEarly = true;
+        complete = true;
+    }
+
+    function handleClose() {
         open = false;
     }
 
     function handleKeydown(e: KeyboardEvent) {
         if (!open) return;
         if (complete) {
-            if (e.key === 'Escape') { e.preventDefault(); handleStop(); }
+            if (e.key === 'Escape' && !imageModalOpen) { e.preventDefault(); handleClose(); }
             return;
         }
         if (e.key === ' ') { e.preventDefault(); handlePauseResume(); }
@@ -188,19 +207,51 @@
 
         {#if complete}
             <!-- Session complete screen -->
-            <div class="flex-1 flex flex-col items-center justify-center gap-6">
-                <div class="flex flex-col items-center gap-2">
-                    <p class="text-white text-3xl font-semibold">Session complete</p>
-                    <p class="text-white/60 text-lg">{drawnCount} image{drawnCount !== 1 ? 's' : ''} drawn</p>
+            <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <!-- Header -->
+                <div class="flex items-start justify-between px-6 pt-6 pb-4 shrink-0">
+                    <div>
+                        <p class="text-white text-2xl font-semibold">{stoppedEarly ? 'Session stopped' : 'Session complete'}</p>
+                        <p class="text-white/60 text-sm mt-0.5">
+                            {#if stoppedEarly}
+                                {drawnImages.length} of {targetCount} image{targetCount !== 1 ? 's' : ''} drawn
+                            {:else}
+                                {drawnImages.length} image{drawnImages.length !== 1 ? 's' : ''} drawn
+                            {/if}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onclick={handleClose}
+                        class="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors border border-white/20 shrink-0"
+                    >
+                        Close
+                    </button>
                 </div>
-                <button
-                    type="button"
-                    onclick={handleStop}
-                    class="px-6 py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors border border-white/20"
-                >
-                    Close
-                </button>
+
+                <!-- Thumbnail grid -->
+                <div class="flex-1 overflow-y-auto px-6 pb-6">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                        {#each drawnImages as img, i (i)}
+                            <button
+                                type="button"
+                                onclick={() => { selectedImage = img; imageModalOpen = true; }}
+                                class="group relative aspect-square overflow-hidden rounded-lg bg-white/5 hover:ring-2 hover:ring-white/30 transition-all"
+                                title={img.filePath.split('/').pop()}
+                            >
+                                <img
+                                    src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                    alt=""
+                                    class="w-full h-full object-cover"
+                                    draggable="false"
+                                />
+                            </button>
+                        {/each}
+                    </div>
+                </div>
             </div>
+
+            <ImageMetadataModal bind:open={imageModalOpen} image={selectedImage} />
         {:else}
             <!-- Image display -->
             <div class="relative flex-1 flex items-center justify-center min-h-0 p-4">

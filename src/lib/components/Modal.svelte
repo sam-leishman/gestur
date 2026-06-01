@@ -5,12 +5,14 @@
         open = $bindable(false),
         title,
         children,
-        onclose
+        onclose,
+        maxWidth = 'max-w-md'
     }: {
         open: boolean;
         title: string;
         children: Snippet;
         onclose?: () => void;
+        maxWidth?: string;
     } = $props();
 
     function close() {
@@ -39,7 +41,7 @@
         tabindex="-1"
         aria-label={title}
     >
-        <div class="bg-canvas border border-muted rounded-xl shadow-xl w-full max-w-md flex flex-col gap-4 p-6">
+        <div class="bg-canvas border border-muted rounded-xl shadow-xl w-full {maxWidth} flex flex-col gap-4 p-6">
             <div class="flex items-center justify-between">
                 <h2 class="text-lg font-semibold text-ink">{title}</h2>
                 <button
