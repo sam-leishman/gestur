@@ -45,9 +45,13 @@
     let deletingSubjectId = $state<string | null>(null);
     let deletingFieldId = $state<string | null>(null);
 
-    // ── Drag-and-drop ──────────────────────────────────────────────────────────
+    // ── Drag-and-drop (fields) ────────────────────────────────────────────────
     let dragSourceIndex = $state<number | null>(null);
     let dragOverIndex = $state<number | null>(null);
+
+    // ── Drag-and-drop (options) ───────────────────────────────────────────────
+    let optionDragSource = $state<number | null>(null);
+    let optionDragOver = $state<number | null>(null);
 
     // ── Load subjects on mount ─────────────────────────────────────────────────
     $effect(() => {
@@ -182,6 +186,34 @@
     function removeOption(i: number) {
         fieldOptions = fieldOptions.filter((_, idx) => idx !== i);
         if (fieldOptions.length === 0) fieldOptions = [''];
+    }
+
+    function onOptionDragStart(index: number) {
+        optionDragSource = index;
+    }
+
+    function onOptionDragOver(e: DragEvent, index: number) {
+        e.preventDefault();
+        optionDragOver = index;
+    }
+
+    function onOptionDrop(index: number) {
+        if (optionDragSource === null || optionDragSource === index) {
+            optionDragSource = null;
+            optionDragOver = null;
+            return;
+        }
+        const reordered = [...fieldOptions];
+        const [moved] = reordered.splice(optionDragSource, 1);
+        reordered.splice(index, 0, moved);
+        fieldOptions = reordered;
+        optionDragSource = null;
+        optionDragOver = null;
+    }
+
+    function onOptionDragEnd() {
+        optionDragSource = null;
+        optionDragOver = null;
     }
 
     function cleanedOptions(): string[] {
@@ -361,7 +393,19 @@
                 <span class="text-sm font-medium text-warm-gray">Options</span>
                 <div class="flex flex-col gap-2">
                     {#each fieldOptions as _, i (i)}
-                        <div class="flex items-center gap-2">
+                        <div
+                            class="flex items-center gap-2 rounded-lg transition-colors
+                                {optionDragOver === i && optionDragSource !== i ? 'bg-terracotta-tint' : ''}"
+                            role="listitem"
+                            draggable="true"
+                            ondragstart={() => onOptionDragStart(i)}
+                            ondragover={(e) => onOptionDragOver(e, i)}
+                            ondrop={() => onOptionDrop(i)}
+                            ondragend={onOptionDragEnd}
+                        >
+                            <span class="cursor-grab text-muted hover:text-warm-gray transition-colors shrink-0" aria-hidden="true">
+                                <GripVertical class="w-4 h-4" />
+                            </span>
                             <input
                                 type="text"
                                 bind:value={fieldOptions[i]}
