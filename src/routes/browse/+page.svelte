@@ -1,12 +1,12 @@
 <script lang="ts">
-    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, House, Plus, Search, Square, Trash2, X } from 'lucide-svelte';
+    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, Plus, Search, Square, Trash2, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import { isImageFile } from '$lib/utils/images';
 
     type FilterType = 'all' | 'catalogued' | 'uncatalogued';
     type BrowseItem =
         | { name: string; type: 'dir' }
-        | { name: string; type: 'file'; catalogued: boolean };
+        | { name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string };
 
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
     type SubjectField = {
@@ -30,6 +30,7 @@
         id: string;
         title: string;
         filePath: string;
+        liked: boolean;
         subjects: LinkedSubject[];
     };
     type AvailableSubject = { id: string; name: string };
@@ -56,6 +57,7 @@
     let addSubjectOpen = $state(false);
     let removingSubjectId = $state<string | null>(null);
     let uncatalogueOpen = $state(false);
+    let liked = $state(false);
 
     // ── Multi-select state ──────────────────────────────────────────────────
     let selectMode = $state(false);
@@ -174,7 +176,7 @@
             .then((r) => r.json())
             .then((data: { image: ImageData | null }) => {
                 imageData = data.image;
-                if (data.image) { titleDraft = data.image.title; titleDirty = false; }
+                if (data.image) { titleDraft = data.image.title; titleDirty = false; liked = data.image.liked; }
                 detailLoading = false;
             })
             .catch(() => { detailLoading = false; });
@@ -193,6 +195,7 @@
         uncatalogueOpen = false;
         saveStatus = 'idle';
         titleDirty = false;
+        liked = false;
     }
 
     // ── Title save ─────────────────────────────────────────────────────────────
@@ -333,6 +336,34 @@
         imageData = null;
         titleDirty = false;
         setCatalogued(path, false);
+    }
+
+    // ── Like toggle ────────────────────────────────────────────────────────────
+    function setLiked(filePath: string, value: boolean) {
+        const name = filePath.split('/').pop()!;
+        items = items.map((item) =>
+            item.type === 'file' && (item.name === name || item.name === filePath)
+                ? { ...item, liked: value }
+                : item
+        );
+    }
+
+    async function toggleLike() {
+        if (!imageData) return;
+        await toggleLikeById(imageData.id, selectedFilePath!);
+    }
+
+    async function toggleLikeById(imageId: string, filePath: string) {
+        const isCurrentFile = filePath === selectedFilePath;
+        const currentLiked = isCurrentFile ? liked : (items.find((i) => i.type === 'file' && (i.name === filePath.split('/').pop() || i.name === filePath)) as { liked: boolean } | undefined)?.liked ?? false;
+        const next = !currentLiked;
+        if (isCurrentFile) liked = next;
+        setLiked(filePath, next);
+        const res = await fetch(`/api/images/${imageId}/like`, { method: 'POST' });
+        if (!res.ok) { if (isCurrentFile) liked = currentLiked; setLiked(filePath, currentLiked); return; }
+        const data: { liked: boolean } = await res.json();
+        if (isCurrentFile) liked = data.liked;
+        setLiked(filePath, data.liked);
     }
 
     // ── Label auto-save ────────────────────────────────────────────────────────
@@ -716,33 +747,48 @@
                             {:else}
                                 {@const relPath = search ? item.name : [...currentPath, item.name].join('/')}
                                 {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
-                                <button
-                                    type="button"
-                                    data-kb-index={i}
-                                    onclick={(e) => handleFileClick(item, i, e)}
-                                    class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
+                                <div
+                                    class="group flex items-center rounded-lg transition-colors
                                         {isSelected
                                             ? 'bg-terracotta-tint border border-terracotta/30'
                                             : 'hover:bg-pressed'}"
                                 >
-                                    {#if selectMode}
-                                        {#if isSelected}
-                                            <CheckSquare class="w-5 h-5 text-terracotta shrink-0" />
+                                    <button
+                                        type="button"
+                                        data-kb-index={i}
+                                        onclick={(e) => handleFileClick(item, i, e)}
+                                        class="flex items-center gap-3 py-3 pl-2 text-left flex-1 min-w-0 focus:outline-none
+                                            {item.catalogued && !selectMode ? 'pr-1' : 'pr-2'}"
+                                    >
+                                        {#if selectMode}
+                                            {#if isSelected}
+                                                <CheckSquare class="w-5 h-5 text-terracotta shrink-0" />
+                                            {:else}
+                                                <Square class="w-5 h-5 text-warm-gray shrink-0" />
+                                            {/if}
+                                        {:else if isImageFile(item.name)}
+                                            <FileImage class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
                                         {:else}
-                                            <Square class="w-5 h-5 text-warm-gray shrink-0" />
+                                            <File class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
                                         {/if}
-                                    {:else if isImageFile(item.name)}
-                                        <FileImage class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
-                                    {:else}
-                                        <File class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
+                                        <span class="text-ink flex-1 truncate text-sm">{item.name}</span>
+                                        {#if item.catalogued}
+                                            <span class="text-xs px-2 py-0.5 bg-terracotta-tint text-terracotta rounded-full font-medium shrink-0">
+                                                Catalogued
+                                            </span>
+                                        {/if}
+                                    </button>
+                                    {#if item.catalogued && !selectMode && item.imageId}
+                                        <button
+                                            type="button"
+                                            onclick={() => toggleLikeById(item.imageId!, relPath)}
+                                            class="shrink-0 p-1.5 mr-1 rounded transition-opacity {item.liked ? 'text-terracotta opacity-100' : 'text-warm-gray opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
+                                            aria-label={item.liked ? 'Unlike' : 'Like'}
+                                        >
+                                            <Heart class="w-3.5 h-3.5 {item.liked ? 'fill-current' : ''}" />
+                                        </button>
                                     {/if}
-                                    <span class="text-ink flex-1 truncate text-sm">{item.name}</span>
-                                    {#if item.catalogued}
-                                        <span class="text-xs px-2 py-0.5 bg-terracotta-tint text-terracotta rounded-full font-medium shrink-0">
-                                            Catalogued
-                                        </span>
-                                    {/if}
-                                </button>
+                                </div>
                             {/if}
                         {/each}
                     </div>
@@ -835,6 +881,15 @@
                     </button>
                     <span class="text-sm font-medium text-ink truncate flex-1 min-w-0">{selectedFileName}</span>
                     {#if imageData}
+                        <button
+                            type="button"
+                            onclick={toggleLike}
+                            class="shrink-0 p-1.5 rounded-lg transition-colors {liked ? 'text-terracotta' : 'text-warm-gray hover:text-terracotta hover:bg-pressed'}"
+                            aria-label={liked ? 'Unlike' : 'Like'}
+                            title={liked ? 'Unlike' : 'Like'}
+                        >
+                            <Heart class="w-4 h-4 {liked ? 'fill-current' : ''}" />
+                        </button>
                         <button
                             type="button"
                             onclick={() => { uncatalogueOpen = true; }}

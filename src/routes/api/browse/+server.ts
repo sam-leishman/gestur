@@ -3,11 +3,12 @@ import { readdirSync } from 'fs';
 import { join, resolve, relative, isAbsolute } from 'path';
 import { config } from '$lib/server/config';
 import { db } from '$lib/server/db';
-import { images } from '$lib/server/db/schema';
+import { images, userImageStats } from '$lib/server/db/schema';
+import { eq, and } from 'drizzle-orm';
 import { isImageFile } from '$lib/utils/images';
 import type { RequestHandler } from '@sveltejs/kit';
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = ({ url, locals }) => {
 	const pathParam = url.searchParams.get('path') || '';
 	const filter = url.searchParams.get('filter') || 'all';
 	const search = url.searchParams.get('search') || '';
@@ -22,22 +23,38 @@ export const GET: RequestHandler = ({ url }) => {
 	}
 
 	// Load all catalogued file paths from DB into a Set for O(1) lookup
-	const cataloguedRows = db.select({ filePath: images.filePath }).from(images).all();
+	const cataloguedRows = db.select({ filePath: images.filePath, id: images.id }).from(images).all();
 	const cataloguedPaths = new Set<string>(cataloguedRows.map((r) => r.filePath));
+
+	// Load liked file paths for the current user
+	const likedPaths = new Set<string>();
+	if (locals.user?.id) {
+		const imageIdToPath = new Map(cataloguedRows.map((r) => [r.id, r.filePath]));
+		const likedRows = db
+			.select({ imageId: userImageStats.imageId })
+			.from(userImageStats)
+			.where(and(eq(userImageStats.userId, locals.user.id), eq(userImageStats.liked, true)))
+			.all();
+		for (const row of likedRows) {
+			const path = imageIdToPath.get(row.imageId);
+			if (path) likedPaths.add(path);
+		}
+	}
+
+	const pathToId = new Map(cataloguedRows.map((r) => [r.filePath, r.id]));
 
 	// Search mode: flatten the entire subtree and filter by name
 	if (search) {
 		const allRelFiles = getAllRelativeFiles(targetPath, imagesRoot);
 		const searchLower = search.toLowerCase();
-
-		const files: Array<{ name: string; type: 'file'; catalogued: boolean }> = allRelFiles
-			.reduce<Array<{ name: string; type: 'file'; catalogued: boolean }>>((acc, relPath) => {
+		const files: Array<{ name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string }> = allRelFiles
+			.reduce<Array<{ name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string }>>((acc, relPath) => {
 				const name = relPath.split('/').pop()!;
 				if (!name.toLowerCase().includes(searchLower)) return acc;
 				const catalogued = cataloguedPaths.has(relPath);
 				if (filter === 'catalogued' && !catalogued) return acc;
 				if (filter === 'uncatalogued' && catalogued) return acc;
-				acc.push({ name: relPath, type: 'file', catalogued });
+				acc.push({ name: relPath, type: 'file', catalogued, liked: likedPaths.has(relPath), imageId: pathToId.get(relPath) });
 				return acc;
 			}, [])
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -59,7 +76,7 @@ export const GET: RequestHandler = ({ url }) => {
 	const matchingSet = new Set(matchingRelPaths);
 
 	const folders: Array<{ name: string; type: 'dir' }> = [];
-	const files: Array<{ name: string; type: 'file'; catalogued: boolean }> = [];
+	const files: Array<{ name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string }> = [];
 
 	for (const entry of entries) {
 		const { name } = entry;
@@ -72,7 +89,7 @@ export const GET: RequestHandler = ({ url }) => {
 			const relPath = relative(imagesRoot, join(targetPath, name));
 			if (!matchingSet.has(relPath)) continue;
 			const catalogued = cataloguedPaths.has(relPath);
-			files.push({ name, type: 'file', catalogued });
+			files.push({ name, type: 'file', catalogued, liked: likedPaths.has(relPath), imageId: pathToId.get(relPath) });
 		}
 	}
 

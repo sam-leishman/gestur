@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Pause, Play, SkipForward, Square } from 'lucide-svelte';
+    import { Heart, Pause, Play, SkipForward, Square } from 'lucide-svelte';
     import { fade } from 'svelte/transition';
     import type { SessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
@@ -28,6 +28,7 @@
     let stoppedEarly = $state(false);
     let imageModalOpen = $state(false);
     let selectedImage = $state<SessionImage | null>(null);
+    let likedIds = $state(new Set<string>());
 
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
@@ -70,6 +71,7 @@
         stoppedEarly = false;
         imageModalOpen = false;
         selectedImage = null;
+        likedIds = new Set();
         pool = shuffle(images);
         poolIndex = 0;
         currentImage = pool[poolIndex] ?? null;
@@ -115,6 +117,52 @@
         stopTimer();
         stoppedEarly = false;
         complete = true;
+        fetchLikedStatus();
+    }
+
+    async function fetchLikedStatus() {
+        const ids = drawnImages.map((img) => img.id);
+        if (ids.length === 0) return;
+        try {
+            const res = await fetch('/api/images/liked', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageIds: ids })
+            });
+            if (!res.ok) return;
+            const data: Record<string, boolean> = await res.json();
+            const next = new Set<string>();
+            for (const [id, isLiked] of Object.entries(data)) {
+                if (isLiked) next.add(id);
+            }
+            likedIds = next;
+        } catch { /* ignore */ }
+    }
+
+    async function toggleLike(imageId: string) {
+        const wasLiked = likedIds.has(imageId);
+        const next = new Set(likedIds);
+        if (wasLiked) next.delete(imageId); else next.add(imageId);
+        likedIds = next;
+        try {
+            const res = await fetch(`/api/images/${imageId}/like`, { method: 'POST' });
+            if (!res.ok) {
+                const rollback = new Set(likedIds);
+                if (wasLiked) rollback.add(imageId); else rollback.delete(imageId);
+                likedIds = rollback;
+                return;
+            }
+            const data: { liked: boolean } = await res.json();
+            const confirmed = new Set(likedIds);
+            if (data.liked) confirmed.add(imageId); else confirmed.delete(imageId);
+            likedIds = confirmed;
+        } catch { /* ignore */ }
+    }
+
+    function handleLikeChange(imageId: string, isLiked: boolean) {
+        const next = new Set(likedIds);
+        if (isLiked) next.add(imageId); else next.delete(imageId);
+        likedIds = next;
     }
 
     function handlePauseResume() {
@@ -135,6 +183,7 @@
         if (drawnImages.length === 0) { open = false; return; }
         stoppedEarly = true;
         complete = true;
+        fetchLikedStatus();
     }
 
     function handleClose() {
@@ -233,25 +282,37 @@
                 <div class="flex-1 overflow-y-auto px-6 pb-6">
                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                         {#each drawnImages as img, i (i)}
-                            <button
-                                type="button"
-                                onclick={() => { selectedImage = img; imageModalOpen = true; }}
-                                class="group relative aspect-square overflow-hidden rounded-lg bg-white/5 hover:ring-2 hover:ring-white/30 transition-all"
-                                title={img.filePath.split('/').pop()}
-                            >
-                                <img
-                                    src="/api/images/file?path={encodeURIComponent(img.filePath)}"
-                                    alt=""
-                                    class="w-full h-full object-cover"
-                                    draggable="false"
-                                />
-                            </button>
+                            {@const isLiked = likedIds.has(img.id)}
+                            <div class="group relative aspect-square overflow-hidden rounded-lg bg-white/5">
+                                <button
+                                    type="button"
+                                    onclick={() => { selectedImage = img; imageModalOpen = true; }}
+                                    class="w-full h-full hover:ring-2 hover:ring-white/30 transition-all focus-visible:ring-2 focus-visible:ring-white/30"
+                                    title={img.filePath.split('/').pop()}
+                                >
+                                    <img
+                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                        alt=""
+                                        class="w-full h-full object-cover"
+                                        draggable="false"
+                                    />
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() => toggleLike(img.id)}
+                                    class="absolute bottom-1.5 right-1.5 p-1 rounded-md bg-black/50 backdrop-blur-sm transition-opacity
+                                        {isLiked ? 'opacity-100 text-terracotta' : 'text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
+                                    aria-label={isLiked ? 'Unlike' : 'Like'}
+                                >
+                                    <Heart class="w-3.5 h-3.5 {isLiked ? 'fill-current' : ''}" />
+                                </button>
+                            </div>
                         {/each}
                     </div>
                 </div>
             </div>
 
-            <ImageMetadataModal bind:open={imageModalOpen} image={selectedImage} />
+            <ImageMetadataModal bind:open={imageModalOpen} image={selectedImage} onLikeChange={handleLikeChange} />
         {:else}
             <!-- Image display -->
             <div class="relative flex-1 flex items-center justify-center min-h-0 p-4">

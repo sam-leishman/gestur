@@ -1,6 +1,6 @@
 <script lang="ts">
     import Modal from '$lib/components/Modal.svelte';
-    import { Plus, Trash2 } from 'lucide-svelte';
+    import { Heart, Plus, Trash2 } from 'lucide-svelte';
     import type { SessionImage } from '$lib/types';
 
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
@@ -25,19 +25,23 @@
         id: string;
         title: string;
         filePath: string;
+        liked: boolean;
         subjects: LinkedSubject[];
     };
     type AvailableSubject = { id: string; name: string };
 
     let {
         open = $bindable(false),
-        image
+        image,
+        onLikeChange
     }: {
         open: boolean;
         image: SessionImage | null;
+        onLikeChange?: (imageId: string, liked: boolean) => void;
     } = $props();
 
     let imageData = $state<ImageData | null>(null);
+    let liked = $state(false);
     let loading = $state(false);
     let titleDraft = $state('');
     let titleDirty = $state(false);
@@ -64,6 +68,7 @@
             .then((r) => r.json())
             .then((data: { image: ImageData | null }) => {
                 imageData = data.image;
+                liked = data.image?.liked ?? false;
                 titleDraft = data.image?.title ?? img.filePath.split('/').pop() ?? '';
                 loading = false;
             })
@@ -218,10 +223,37 @@
         labelTimers.set(key, timer);
     }
 
+    async function toggleLike() {
+        if (!imageData) return;
+        const id = imageData.id;
+        const next = !liked;
+        liked = next;
+        try {
+            const res = await fetch(`/api/images/${id}/like`, { method: 'POST' });
+            if (!res.ok) { liked = !next; return; }
+            const data: { liked: boolean } = await res.json();
+            liked = data.liked;
+            onLikeChange?.(id, data.liked);
+        } catch { liked = !next; }
+    }
+
     const fileName = $derived(image?.filePath.split('/').pop() ?? '');
 </script>
 
 <Modal bind:open title={titleDraft || fileName} maxWidth="max-w-3xl">
+    {#snippet headerActions()}
+        {#if imageData}
+            <button
+                type="button"
+                onclick={toggleLike}
+                class="p-1.5 rounded-lg transition-colors {liked ? 'text-terracotta' : 'text-warm-gray hover:text-terracotta hover:bg-pressed'}"
+                aria-label={liked ? 'Unlike' : 'Like'}
+                title={liked ? 'Unlike' : 'Like'}
+            >
+                <Heart class="w-4 h-4 {liked ? 'fill-current' : ''}" />
+            </button>
+        {/if}
+    {/snippet}
     <div class="flex flex-col md:flex-row gap-5">
         <!-- Image preview -->
         <div class="md:w-72 md:shrink-0 flex items-center justify-center bg-pressed rounded-lg overflow-hidden h-52 md:h-80">

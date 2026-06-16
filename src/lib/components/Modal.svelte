@@ -5,12 +5,14 @@
         open = $bindable(false),
         title,
         children,
+        headerActions,
         onclose,
         maxWidth = 'max-w-md'
     }: {
         open: boolean;
         title: string;
         children: Snippet;
+        headerActions?: Snippet;
         onclose?: () => void;
         maxWidth?: string;
     } = $props();
@@ -42,8 +44,9 @@
         aria-label={title}
     >
         <div class="bg-canvas border border-muted rounded-xl shadow-xl w-full {maxWidth} flex flex-col gap-4 p-6">
-            <div class="flex items-center justify-between">
-                <h2 class="text-lg font-semibold text-ink">{title}</h2>
+            <div class="flex items-center gap-2">
+                <h2 class="text-lg font-semibold text-ink flex-1">{title}</h2>
+                {#if headerActions}{@render headerActions()}{/if}
                 <button
                     type="button"
                     onclick={close}

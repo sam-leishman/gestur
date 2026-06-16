@@ -1,10 +1,20 @@
 import { db } from '$lib/server/db';
-import { images, imageSubjects, subjects, subjectFields, imageSubjectFieldValues } from '$lib/server/db/schema';
-import { eq, asc } from 'drizzle-orm';
+import { images, imageSubjects, subjects, subjectFields, imageSubjectFieldValues, userImageStats } from '$lib/server/db/schema';
+import { eq, asc, and } from 'drizzle-orm';
 
-export function buildImagePayload(imageId: string) {
+export function buildImagePayload(imageId: string, userId?: string) {
     const [image] = db.select().from(images).where(eq(images.id, imageId)).all();
     if (!image) return null;
+
+    let liked = false;
+    if (userId) {
+        const [stats] = db
+            .select({ liked: userImageStats.liked })
+            .from(userImageStats)
+            .where(and(eq(userImageStats.imageId, imageId), eq(userImageStats.userId, userId)))
+            .all();
+        liked = stats?.liked ?? false;
+    }
 
     const linkedSubjects = db
         .select({
@@ -47,5 +57,5 @@ export function buildImagePayload(imageId: string) {
         };
     });
 
-    return { ...image, subjects: subjectData };
+    return { ...image, liked, subjects: subjectData };
 }

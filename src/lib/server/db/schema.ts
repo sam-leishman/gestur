@@ -35,7 +35,8 @@ export const userImageStats = sqliteTable('user_image_stats', {
 	userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
 	imageId: text('image_id').notNull().references(() => images.id, { onDelete: 'cascade' }),
 	drawCount: integer('draw_count').notNull().default(0),
-	skipCount: integer('skip_count').notNull().default(0)
+	skipCount: integer('skip_count').notNull().default(0),
+	liked: integer('liked', { mode: 'boolean' }).notNull().default(false)
 }, (table) => [unique('user_image_stats_unique').on(table.userId, table.imageId)]);
 
 export const userImageStatsRelations = relations(userImageStats, ({ one }) => ({

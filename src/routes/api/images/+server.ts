@@ -5,14 +5,14 @@ import { eq } from 'drizzle-orm';
 import type { RequestHandler } from '@sveltejs/kit';
 import { buildImagePayload } from '$lib/server/imageUtils';
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = ({ url, locals }) => {
     const filePath = url.searchParams.get('path') || '';
     if (!filePath) return json({ image: null });
 
     const [image] = db.select().from(images).where(eq(images.filePath, filePath)).all();
     if (!image) return json({ image: null });
 
-    const payload = buildImagePayload(image.id);
+    const payload = buildImagePayload(image.id, locals.user?.id);
     return json({ image: payload });
 };
 
