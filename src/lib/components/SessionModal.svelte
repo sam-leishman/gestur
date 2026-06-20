@@ -33,6 +33,7 @@
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
     let poolIndex = 0;
+    let skippedIds: string[] = [];
     let intervalId: ReturnType<typeof setInterval> | null = null;
     let hideControlsTimer: ReturnType<typeof setTimeout> | null = null;
     let pauseIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
@@ -72,6 +73,7 @@
         imageModalOpen = false;
         selectedImage = null;
         likedIds = new Set();
+        skippedIds = [];
         pool = shuffle(images);
         poolIndex = 0;
         currentImage = pool[poolIndex] ?? null;
@@ -113,11 +115,28 @@
         currentImage = pool[poolIndex];
     }
 
+    function handleSkip() {
+        if (currentImage) skippedIds.push(currentImage.id);
+        advanceImage();
+    }
+
     function endSession() {
         stopTimer();
         stoppedEarly = false;
         complete = true;
+        recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
         fetchLikedStatus();
+    }
+
+    async function recordSessionStats(draws: string[], skips: string[]) {
+        if (draws.length === 0 && skips.length === 0) return;
+        try {
+            await fetch('/api/images/stats', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draws, skips })
+            });
+        } catch { /* ignore */ }
     }
 
     async function fetchLikedStatus() {
@@ -183,6 +202,7 @@
         if (drawnImages.length === 0) { open = false; return; }
         stoppedEarly = true;
         complete = true;
+        recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
         fetchLikedStatus();
     }
 
@@ -197,7 +217,7 @@
             return;
         }
         if (e.key === ' ') { e.preventDefault(); handlePauseResume(); }
-        if (e.key === 'ArrowRight') { e.preventDefault(); advanceImage(); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); handleSkip(); }
         if (e.key === 'Escape') { e.preventDefault(); handleStop(); }
     }
 
@@ -376,7 +396,7 @@
 
                     <button
                         type="button"
-                        onclick={advanceImage}
+                        onclick={handleSkip}
                         class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors text-sm"
                         title="Skip (→)"
                         aria-label="Skip"

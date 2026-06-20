@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { PencilLine, Image, Database } from "lucide-svelte";
+	import { PencilLine, Image, Database, ChartNoAxesColumn } from "lucide-svelte";
 
     let { isOpen = $bindable(true) } = $props();
 
@@ -26,6 +26,12 @@
             icon: Database,
             href: '/data',
             isActive: isActive('/data')
+        },
+        {
+            label: 'Stats',
+            icon: ChartNoAxesColumn,
+            href: '/stats',
+            isActive: isActive('/stats')
         }
     ]);
 </script>

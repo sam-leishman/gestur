@@ -7,13 +7,17 @@ export function buildImagePayload(imageId: string, userId?: string) {
     if (!image) return null;
 
     let liked = false;
+    let drawCount = 0;
+    let skipCount = 0;
     if (userId) {
         const [stats] = db
-            .select({ liked: userImageStats.liked })
+            .select({ liked: userImageStats.liked, drawCount: userImageStats.drawCount, skipCount: userImageStats.skipCount })
             .from(userImageStats)
             .where(and(eq(userImageStats.imageId, imageId), eq(userImageStats.userId, userId)))
             .all();
         liked = stats?.liked ?? false;
+        drawCount = stats?.drawCount ?? 0;
+        skipCount = stats?.skipCount ?? 0;
     }
 
     const linkedSubjects = db
@@ -57,5 +61,5 @@ export function buildImagePayload(imageId: string, userId?: string) {
         };
     });
 
-    return { ...image, liked, subjects: subjectData };
+    return { ...image, liked, drawCount, skipCount, subjects: subjectData };
 }
