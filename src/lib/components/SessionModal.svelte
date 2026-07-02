@@ -3,6 +3,7 @@
     import { fade } from 'svelte/transition';
     import type { SessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
+    import { localDateString } from '$lib/utils/date';
 
     let {
         open = $bindable(false),
@@ -29,6 +30,7 @@
     let imageModalOpen = $state(false);
     let selectedImage = $state<SessionImage | null>(null);
     let likedIds = $state(new Set<string>());
+    let midnightGrace = $state(false);
 
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
@@ -73,6 +75,7 @@
         imageModalOpen = false;
         selectedImage = null;
         likedIds = new Set();
+        midnightGrace = false;
         skippedIds = [];
         pool = shuffle(images);
         poolIndex = 0;
@@ -126,6 +129,27 @@
         complete = true;
         recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
         fetchLikedStatus();
+        if (drawnImages.length > 0) scheduleDrawingDay();
+    }
+
+    function scheduleDrawingDay() {
+        const now = new Date();
+        if (now.getHours() < 2) {
+            midnightGrace = true;
+        } else {
+            recordDrawingDay(localDateString(now));
+        }
+    }
+
+    async function recordDrawingDay(date: string) {
+        midnightGrace = false;
+        try {
+            await fetch('/api/streak/day', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date })
+            });
+        } catch { /* ignore */ }
     }
 
     async function recordSessionStats(draws: string[], skips: string[]) {
@@ -198,12 +222,14 @@
     function handleStop() {
         if (complete) { open = false; return; }
         stopTimer();
+        const completedDraws = drawnImages.length;
         if (currentImage) drawnImages = [...drawnImages, currentImage];
         if (drawnImages.length === 0) { open = false; return; }
         stoppedEarly = true;
         complete = true;
         recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
         fetchLikedStatus();
+        if (completedDraws > 0) scheduleDrawingDay();
     }
 
     function handleClose() {
@@ -297,6 +323,29 @@
                         Close
                     </button>
                 </div>
+
+                <!-- Midnight grace prompt -->
+                {#if midnightGrace}
+                    <div class="mx-6 mb-2 shrink-0 rounded-xl bg-white/10 border border-white/20 px-4 py-3 flex items-center justify-between gap-4">
+                        <p class="text-white/80 text-sm">It's after midnight — count this session as yesterday?</p>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onclick={() => recordDrawingDay(localDateString(new Date(), -1))}
+                                class="px-3 py-1.5 rounded-full bg-terracotta hover:bg-terracotta/80 text-white text-sm font-medium transition-colors"
+                            >
+                                Yes, yesterday
+                            </button>
+                            <button
+                                type="button"
+                                onclick={() => recordDrawingDay(localDateString(new Date()))}
+                                class="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
+                            >
+                                No, today
+                            </button>
+                        </div>
+                    </div>
+                {/if}
 
                 <!-- Thumbnail grid -->
                 <div class="flex-1 overflow-y-auto px-6 pb-6">

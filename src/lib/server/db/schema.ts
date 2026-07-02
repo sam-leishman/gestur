@@ -195,3 +195,23 @@ export const imageTagsRelations = relations(imageTags, ({ one }) => ({
 		references: [tags.id]
 	})
 }));
+
+
+
+// ===========================================================================
+// DRAWING DAYS
+// ===========================================================================
+export const drawingDays = sqliteTable('drawing_days', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	date: text('date').notNull()
+}, (table) => [unique('drawing_days_user_date_unique').on(table.userId, table.date)]);
+
+export const drawingDaysRelations = relations(drawingDays, ({ one }) => ({
+	user: one(user, {
+		fields: [drawingDays.userId],
+		references: [user.id]
+	})
+}));
