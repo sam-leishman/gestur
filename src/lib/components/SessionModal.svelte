@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { Heart, Pause, Play, SkipForward, Square } from 'lucide-svelte';
+    import { Pause, Play, SkipForward, Square } from 'lucide-svelte';
     import { fade } from 'svelte/transition';
     import type { SessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
+    import SessionResultView from '$lib/components/SessionResultView.svelte';
     import { localDateString } from '$lib/utils/date';
 
     let {
@@ -20,6 +21,7 @@
     // ── State ──────────────────────────────────────────────────────────────────
     let drawnCount = $state(0);
     let drawnImages = $state<SessionImage[]>([]);
+    let skippedImages = $state<SessionImage[]>([]);
     let paused = $state(false);
     let complete = $state(false);
     let controlsVisible = $state(true);
@@ -35,7 +37,7 @@
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
     let poolIndex = 0;
-    let skippedIds: string[] = [];
+    let startedAt = new Date();
     let intervalId: ReturnType<typeof setInterval> | null = null;
     let hideControlsTimer: ReturnType<typeof setTimeout> | null = null;
     let pauseIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +68,7 @@
     function startSession() {
         drawnCount = 0;
         drawnImages = [];
+        skippedImages = [];
         elapsed = 0;
         paused = false;
         complete = false;
@@ -76,10 +79,10 @@
         selectedImage = null;
         likedIds = new Set();
         midnightGrace = false;
-        skippedIds = [];
         pool = shuffle(images);
         poolIndex = 0;
         currentImage = pool[poolIndex] ?? null;
+        startedAt = new Date();
         startTimer();
         scheduleHideControls();
     }
@@ -119,7 +122,7 @@
     }
 
     function handleSkip() {
-        if (currentImage) skippedIds.push(currentImage.id);
+        if (currentImage) skippedImages = [...skippedImages, currentImage];
         advanceImage();
     }
 
@@ -127,7 +130,7 @@
         stopTimer();
         stoppedEarly = false;
         complete = true;
-        recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
+        persistSession('completed');
         fetchLikedStatus();
         if (drawnImages.length > 0) scheduleDrawingDay();
     }
@@ -152,19 +155,28 @@
         } catch { /* ignore */ }
     }
 
-    async function recordSessionStats(draws: string[], skips: string[]) {
+    async function persistSession(status: 'completed' | 'stopped') {
+        const draws = drawnImages.map((img) => img.id);
+        const skips = skippedImages.map((img) => img.id);
         if (draws.length === 0 && skips.length === 0) return;
         try {
-            await fetch('/api/images/stats', {
+            await fetch('/api/sessions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ draws, skips })
+                body: JSON.stringify({
+                    draws,
+                    skips,
+                    targetCount,
+                    durationSeconds,
+                    startedAt: startedAt.toISOString(),
+                    status
+                })
             });
         } catch { /* ignore */ }
     }
 
     async function fetchLikedStatus() {
-        const ids = drawnImages.map((img) => img.id);
+        const ids = [...drawnImages, ...skippedImages].map((img) => img.id);
         if (ids.length === 0) return;
         try {
             const res = await fetch('/api/images/liked', {
@@ -223,11 +235,11 @@
         if (complete) { open = false; return; }
         stopTimer();
         const completedDraws = drawnImages.length;
-        if (currentImage) drawnImages = [...drawnImages, currentImage];
-        if (drawnImages.length === 0) { open = false; return; }
+        if (currentImage) skippedImages = [...skippedImages, currentImage];
+        if (drawnImages.length === 0 && skippedImages.length === 0) { open = false; return; }
         stoppedEarly = true;
         complete = true;
-        recordSessionStats(drawnImages.map((img) => img.id), skippedIds);
+        persistSession('stopped');
         fetchLikedStatus();
         if (completedDraws > 0) scheduleDrawingDay();
     }
@@ -302,19 +314,16 @@
 
         {#if complete}
             <!-- Session complete screen -->
-            <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
-                <!-- Header -->
-                <div class="flex items-start justify-between px-6 pt-6 pb-4 shrink-0">
-                    <div>
-                        <p class="text-white text-2xl font-semibold">{stoppedEarly ? 'Session stopped' : 'Session complete'}</p>
-                        <p class="text-white/60 text-sm mt-0.5">
-                            {#if stoppedEarly}
-                                {drawnImages.length} of {targetCount} image{targetCount !== 1 ? 's' : ''} drawn
-                            {:else}
-                                {drawnImages.length} image{drawnImages.length !== 1 ? 's' : ''} drawn
-                            {/if}
-                        </p>
-                    </div>
+            <SessionResultView
+                {stoppedEarly}
+                {targetCount}
+                {drawnImages}
+                {skippedImages}
+                {likedIds}
+                onToggleLike={toggleLike}
+                onSelectImage={(img) => { selectedImage = img; imageModalOpen = true; }}
+            >
+                {#snippet headerActions()}
                     <button
                         type="button"
                         onclick={handleClose}
@@ -322,64 +331,31 @@
                     >
                         Close
                     </button>
-                </div>
-
-                <!-- Midnight grace prompt -->
-                {#if midnightGrace}
-                    <div class="mx-6 mb-2 shrink-0 rounded-xl bg-white/10 border border-white/20 px-4 py-3 flex items-center justify-between gap-4">
-                        <p class="text-white/80 text-sm">It's after midnight — count this session as yesterday?</p>
-                        <div class="flex items-center gap-2 shrink-0">
-                            <button
-                                type="button"
-                                onclick={() => recordDrawingDay(localDateString(new Date(), -1))}
-                                class="px-3 py-1.5 rounded-full bg-terracotta hover:bg-terracotta/80 text-white text-sm font-medium transition-colors"
-                            >
-                                Yes, yesterday
-                            </button>
-                            <button
-                                type="button"
-                                onclick={() => recordDrawingDay(localDateString(new Date()))}
-                                class="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
-                            >
-                                No, today
-                            </button>
-                        </div>
-                    </div>
-                {/if}
-
-                <!-- Thumbnail grid -->
-                <div class="flex-1 overflow-y-auto px-6 pb-6">
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                        {#each drawnImages as img, i (i)}
-                            {@const isLiked = likedIds.has(img.id)}
-                            <div class="group relative aspect-square overflow-hidden rounded-lg bg-white/5">
+                {/snippet}
+                {#snippet banner()}
+                    {#if midnightGrace}
+                        <div class="mx-6 mb-2 shrink-0 rounded-xl bg-white/10 border border-white/20 px-4 py-3 flex items-center justify-between gap-4">
+                            <p class="text-white/80 text-sm">It's after midnight — count this session as yesterday?</p>
+                            <div class="flex items-center gap-2 shrink-0">
                                 <button
                                     type="button"
-                                    onclick={() => { selectedImage = img; imageModalOpen = true; }}
-                                    class="w-full h-full hover:ring-2 hover:ring-white/30 transition-all focus-visible:ring-2 focus-visible:ring-white/30"
-                                    title={img.filePath.split('/').pop()}
+                                    onclick={() => recordDrawingDay(localDateString(new Date(), -1))}
+                                    class="px-3 py-1.5 rounded-full bg-terracotta hover:bg-terracotta/80 text-white text-sm font-medium transition-colors"
                                 >
-                                    <img
-                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
-                                        alt=""
-                                        class="w-full h-full object-cover"
-                                        draggable="false"
-                                    />
+                                    Yes, yesterday
                                 </button>
                                 <button
                                     type="button"
-                                    onclick={() => toggleLike(img.id)}
-                                    class="absolute bottom-1.5 right-1.5 p-1 rounded-md bg-black/50 backdrop-blur-sm transition-opacity
-                                        {isLiked ? 'opacity-100 text-terracotta' : 'text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
-                                    aria-label={isLiked ? 'Unlike' : 'Like'}
+                                    onclick={() => recordDrawingDay(localDateString(new Date()))}
+                                    class="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
                                 >
-                                    <Heart class="w-3.5 h-3.5 {isLiked ? 'fill-current' : ''}" />
+                                    No, today
                                 </button>
                             </div>
-                        {/each}
-                    </div>
-                </div>
-            </div>
+                        </div>
+                    {/if}
+                {/snippet}
+            </SessionResultView>
 
             <ImageMetadataModal bind:open={imageModalOpen} image={selectedImage} onLikeChange={handleLikeChange} />
         {:else}

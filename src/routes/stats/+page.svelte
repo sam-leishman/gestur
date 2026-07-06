@@ -1,8 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Eye, Flame, Heart, Pencil, SkipForward, Trophy } from 'lucide-svelte';
+    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, Pencil, SkipForward, Trophy } from 'lucide-svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
-    import type { SessionImage } from '$lib/types';
+    import SessionHistoryDialog from '$lib/components/SessionHistoryDialog.svelte';
+    import type { SessionImage, SessionStatus, SessionSummary } from '$lib/types';
     import { localDateString } from '$lib/utils/date';
 
     type StatsImage = { imageId: string; filePath: string; drawCount?: number; skipCount?: number };
@@ -66,7 +67,72 @@
         }
     }
 
-    onMount(loadData);
+    // ── Session history ─────────────────────────────────────────────────────
+    const SESSIONS_PAGE_SIZE = 8;
+
+    let sessions = $state<SessionSummary[]>([]);
+    let sessionsTotal = $state(0);
+    let sessionsPage = $state(0);
+    let sessionsLoading = $state(true);
+    let sessionsError = $state<string | null>(null);
+    let statusFilter = $state<'all' | SessionStatus>('all');
+
+    let historyDialogOpen = $state(false);
+    let selectedSessionId = $state<string | null>(null);
+
+    const sessionsTotalPages = $derived(Math.max(1, Math.ceil(sessionsTotal / SESSIONS_PAGE_SIZE)));
+
+    async function loadSessions() {
+        sessionsLoading = true;
+        sessionsError = null;
+        try {
+            const params = new URLSearchParams({
+                limit: String(SESSIONS_PAGE_SIZE),
+                offset: String(sessionsPage * SESSIONS_PAGE_SIZE)
+            });
+            if (statusFilter !== 'all') params.set('status', statusFilter);
+            const res = await fetch(`/api/sessions?${params}`);
+            if (!res.ok) throw new Error('Failed to load sessions');
+            const data: { sessions: SessionSummary[]; total: number } = await res.json();
+            sessions = data.sessions;
+            sessionsTotal = data.total;
+        } catch {
+            sessionsError = 'Could not load session history.';
+        } finally {
+            sessionsLoading = false;
+        }
+    }
+
+    function setStatusFilter(value: 'all' | SessionStatus) {
+        if (statusFilter === value) return;
+        statusFilter = value;
+        sessionsPage = 0;
+        loadSessions();
+    }
+
+    function goToSessionsPage(page: number) {
+        if (page < 0 || page >= sessionsTotalPages || page === sessionsPage) return;
+        sessionsPage = page;
+        loadSessions();
+    }
+
+    function openSession(id: string) {
+        selectedSessionId = id;
+        historyDialogOpen = true;
+    }
+
+    function formatSessionDate(iso: string) {
+        return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function formatSessionTime(iso: string) {
+        return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    }
+
+    onMount(() => {
+        loadData();
+        loadSessions();
+    });
 
     function prevMonth() {
         if (calendarMonth === 0) { calendarMonth = 11; calendarYear--; }
@@ -166,7 +232,7 @@
             </div>
         </div>
 
-        <!-- Main content: calendar left, images right -->
+        <!-- Main content: calendar left, session history right -->
         <div class="flex flex-col lg:flex-row gap-6 items-start">
             <!-- Calendar panel -->
             <div class="flex flex-col gap-2 w-full lg:w-64 shrink-0">
@@ -224,83 +290,178 @@
                         </div>
                     </div>
                 </div>
-
             </div>
 
-            <!-- Image grids -->
-            <div class="flex flex-col gap-6 flex-1 min-w-0">
-                {#if statsData.totalDraws === 0 && statsData.totalSkips === 0}
-                    <div class="bg-canvas border border-muted rounded-xl p-8 text-center">
-                        <ChartNoAxesColumn class="w-10 h-10 text-muted mx-auto mb-3" />
-                        <p class="text-ink font-medium">No sessions yet</p>
-                        <p class="text-warm-gray text-sm mt-1">Start a draw session to begin tracking your activity.</p>
+            <!-- Session history -->
+            <div class="flex flex-col flex-1 min-w-0 w-full bg-canvas border border-muted rounded-xl overflow-hidden">
+                <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-muted">
+                    <h2 class="text-sm font-semibold text-ink flex items-center gap-1.5">
+                        <History class="w-3.5 h-3.5 text-terracotta" />
+                        Session History
+                    </h2>
+                    <select
+                        value={statusFilter}
+                        onchange={(e) => setStatusFilter(e.currentTarget.value as 'all' | SessionStatus)}
+                        class="rounded-lg border-muted text-xs py-1.5"
+                        aria-label="Filter sessions by status"
+                    >
+                        <option value="all">All sessions</option>
+                        <option value="completed">Completed</option>
+                        <option value="stopped">Stopped early</option>
+                    </select>
+                </div>
+
+                {#if sessionsLoading}
+                    <div class="flex flex-col gap-2 p-4">
+                        {#each Array(4) as _, i (i)}
+                            <div class="h-12 bg-pressed rounded-lg animate-pulse" style="opacity: {1 - i * 0.15}"></div>
+                        {/each}
+                    </div>
+                {:else if sessionsError}
+                    <p class="text-sm text-red-600 p-4">{sessionsError}</p>
+                {:else if sessions.length === 0}
+                    <div class="p-8 text-center">
+                        <ChartNoAxesColumn class="w-8 h-8 text-muted mx-auto mb-2" />
+                        <p class="text-ink font-medium text-sm">
+                            {statusFilter === 'all' ? 'No sessions yet' : 'No sessions match this filter'}
+                        </p>
+                        <p class="text-warm-gray text-xs mt-1">Start a draw session to begin tracking your history.</p>
                     </div>
                 {:else}
-                    {#if statsData.mostDrawn.length > 0}
-                        <div class="flex flex-col gap-2">
-                            <h2 class="text-sm font-semibold text-ink flex items-center gap-1.5">
-                                <Pencil class="w-3.5 h-3.5 text-terracotta" />
-                                Most Drawn
-                            </h2>
-                            <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-2">
-                                {#each statsData.mostDrawn as img (img.imageId)}
-                                    <button
-                                        type="button"
-                                        onclick={() => openModal(img)}
-                                        class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
-                                        title={imageName(img.filePath)}
-                                    >
-                                        <img
-                                            src="/api/images/file?path={encodeURIComponent(img.filePath)}"
-                                            alt={imageName(img.filePath)}
-                                            class="w-full h-full object-cover"
-                                            draggable="false"
-                                        />
-                                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                        <div class="absolute top-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
-                                            <Pencil class="w-2 h-2" />
-                                            {img.drawCount}
-                                        </div>
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-                    {/if}
+                    <div class="flex flex-col divide-y divide-muted/60">
+                        {#each sessions as session (session.id)}
+                            <button
+                                type="button"
+                                onclick={() => openSession(session.id)}
+                                class="flex items-center gap-3 px-4 py-3 text-left hover:bg-pressed transition-colors"
+                            >
+                                <div class="flex flex-col shrink-0 w-16">
+                                    <span class="text-sm font-medium text-ink">{formatSessionDate(session.completedAt)}</span>
+                                    <span class="text-xs text-warm-gray">{formatSessionTime(session.completedAt)}</span>
+                                </div>
+                                <div class="flex items-center gap-3 flex-1 min-w-0 text-sm text-warm-gray">
+                                    <span class="flex items-center gap-1 text-ink shrink-0">
+                                        <Pencil class="w-3.5 h-3.5 text-terracotta shrink-0" />
+                                        {session.drawnCount}
+                                    </span>
+                                    {#if session.skippedCount > 0}
+                                        <span class="flex items-center gap-1 shrink-0">
+                                            <SkipForward class="w-3.5 h-3.5 shrink-0" />
+                                            {session.skippedCount}
+                                        </span>
+                                    {/if}
+                                    <span class="hidden sm:flex items-center gap-1 text-xs shrink-0">
+                                        <Clock class="w-3 h-3 shrink-0" />
+                                        {session.durationSeconds}s/img
+                                    </span>
+                                </div>
+                                <span
+                                    class="shrink-0 text-xs font-medium px-2 py-1 rounded-full
+                                        {session.status === 'completed' ? 'bg-terracotta-tint text-terracotta' : 'bg-pressed text-warm-gray'}"
+                                >
+                                    {session.status === 'completed' ? 'Completed' : 'Stopped early'}
+                                </span>
+                            </button>
+                        {/each}
+                    </div>
 
-                    {#if statsData.mostSkipped.length > 0}
-                        <div class="flex flex-col gap-2">
-                            <h2 class="text-sm font-semibold text-ink flex items-center gap-1.5">
-                                <SkipForward class="w-3.5 h-3.5 text-terracotta" />
-                                Most Skipped
-                            </h2>
-                            <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-2">
-                                {#each statsData.mostSkipped as img (img.imageId)}
-                                    <button
-                                        type="button"
-                                        onclick={() => openModal(img)}
-                                        class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
-                                        title={imageName(img.filePath)}
-                                    >
-                                        <img
-                                            src="/api/images/file?path={encodeURIComponent(img.filePath)}"
-                                            alt={imageName(img.filePath)}
-                                            class="w-full h-full object-cover"
-                                            draggable="false"
-                                        />
-                                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                        <div class="absolute top-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
-                                            <SkipForward class="w-2 h-2" />
-                                            {img.skipCount}
-                                        </div>
-                                    </button>
-                                {/each}
-                            </div>
+                    <!-- Pagination -->
+                    <div class="flex items-center justify-between px-4 py-3 border-t border-muted mt-auto">
+                        <p class="text-xs text-warm-gray">
+                            {sessionsPage * SESSIONS_PAGE_SIZE + 1}–{Math.min(sessionsTotal, (sessionsPage + 1) * SESSIONS_PAGE_SIZE)} of {sessionsTotal}
+                        </p>
+                        <div class="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onclick={() => goToSessionsPage(sessionsPage - 1)}
+                                disabled={sessionsPage === 0}
+                                class="p-1.5 rounded text-warm-gray hover:text-ink hover:bg-pressed transition-colors disabled:opacity-30 disabled:cursor-default"
+                                aria-label="Previous page"
+                            >
+                                <ChevronLeft class="w-4 h-4" />
+                            </button>
+                            <span class="text-xs text-warm-gray px-1 tabular-nums">{sessionsPage + 1} / {sessionsTotalPages}</span>
+                            <button
+                                type="button"
+                                onclick={() => goToSessionsPage(sessionsPage + 1)}
+                                disabled={sessionsPage >= sessionsTotalPages - 1}
+                                class="p-1.5 rounded text-warm-gray hover:text-ink hover:bg-pressed transition-colors disabled:opacity-30 disabled:cursor-default"
+                                aria-label="Next page"
+                            >
+                                <ChevronRight class="w-4 h-4" />
+                            </button>
                         </div>
-                    {/if}
+                    </div>
                 {/if}
             </div>
         </div>
+
+        <!-- Top images (secondary) -->
+        {#if statsData.mostDrawn.length > 0 || statsData.mostSkipped.length > 0}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {#if statsData.mostDrawn.length > 0}
+                    <div class="flex flex-col gap-2">
+                        <h2 class="text-xs font-semibold text-warm-gray uppercase tracking-wide flex items-center gap-1.5">
+                            <Pencil class="w-3 h-3 text-terracotta" />
+                            Most Drawn
+                        </h2>
+                        <div class="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                            {#each statsData.mostDrawn.slice(0, 6) as img (img.imageId)}
+                                <button
+                                    type="button"
+                                    onclick={() => openModal(img)}
+                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
+                                    title={imageName(img.filePath)}
+                                >
+                                    <img
+                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                        alt={imageName(img.filePath)}
+                                        class="w-full h-full object-cover"
+                                        draggable="false"
+                                    />
+                                    <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
+                                        <Pencil class="w-2 h-2" />
+                                        {img.drawCount}
+                                    </div>
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+
+                {#if statsData.mostSkipped.length > 0}
+                    <div class="flex flex-col gap-2">
+                        <h2 class="text-xs font-semibold text-warm-gray uppercase tracking-wide flex items-center gap-1.5">
+                            <SkipForward class="w-3 h-3 text-terracotta" />
+                            Most Skipped
+                        </h2>
+                        <div class="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                            {#each statsData.mostSkipped.slice(0, 6) as img (img.imageId)}
+                                <button
+                                    type="button"
+                                    onclick={() => openModal(img)}
+                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
+                                    title={imageName(img.filePath)}
+                                >
+                                    <img
+                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                        alt={imageName(img.filePath)}
+                                        class="w-full h-full object-cover"
+                                        draggable="false"
+                                    />
+                                    <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
+                                        <SkipForward class="w-2 h-2" />
+                                        {img.skipCount}
+                                    </div>
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+            </div>
+        {/if}
     {/if}
 </div>
 
 <ImageMetadataModal bind:open={imageModalOpen} image={selectedImage} />
+<SessionHistoryDialog bind:open={historyDialogOpen} sessionId={selectedSessionId} />

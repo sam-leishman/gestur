@@ -20,7 +20,8 @@ export const images = sqliteTable('images', {
 export const imagesRelations = relations(images, ({ many }) => ({
 	stats: many(userImageStats),
 	subjects: many(imageSubjects),
-	tags: many(imageTags)
+	tags: many(imageTags),
+	sessionEntries: many(sessionImages)
 }));
 
 
@@ -213,5 +214,58 @@ export const drawingDaysRelations = relations(drawingDays, ({ one }) => ({
 	user: one(user, {
 		fields: [drawingDays.userId],
 		references: [user.id]
+	})
+}));
+
+
+
+// ===========================================================================
+// SESSIONS
+// ===========================================================================
+export const sessions = sqliteTable('sessions', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+	completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull(),
+	status: text('status', { enum: ['completed', 'stopped'] }).notNull(),
+	targetCount: integer('target_count').notNull(),
+	durationSeconds: integer('duration_seconds').notNull(),
+	drawnCount: integer('drawn_count').notNull().default(0),
+	skippedCount: integer('skipped_count').notNull().default(0)
+});
+
+export const sessionsRelations = relations(sessions, ({ one, many }) => ({
+	user: one(user, {
+		fields: [sessions.userId],
+		references: [user.id]
+	}),
+	items: many(sessionImages)
+}));
+
+
+
+// ===========================================================================
+// SESSION IMAGES
+// ===========================================================================
+export const sessionImages = sqliteTable('session_images', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+	imageId: text('image_id').notNull().references(() => images.id, { onDelete: 'cascade' }),
+	result: text('result', { enum: ['drawn', 'skipped'] }).notNull(),
+	position: integer('position').notNull()
+});
+
+export const sessionImagesRelations = relations(sessionImages, ({ one }) => ({
+	session: one(sessions, {
+		fields: [sessionImages.sessionId],
+		references: [sessions.id]
+	}),
+	image: one(images, {
+		fields: [sessionImages.imageId],
+		references: [images.id]
 	})
 }));
