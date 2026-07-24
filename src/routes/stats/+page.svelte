@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, Pencil, SkipForward, Trophy } from 'lucide-svelte';
+    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, Pencil, SkipForward, Target, Trophy, TriangleAlert } from 'lucide-svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionHistoryDialog from '$lib/components/SessionHistoryDialog.svelte';
     import type { SessionImage, SessionStatus, SessionSummary } from '$lib/types';
@@ -19,7 +19,12 @@
         currentStreak: number;
         longestStreak: number;
         drawnDates: string[];
+        dailyGoalMinutes: number;
+        todaySeconds: number;
     };
+
+    const LOW_GOAL_WARNING_THRESHOLD_MINUTES = 9;
+    const MIN_GOAL_MINUTES = 1;
 
     let today = $state(localDateString(new Date()));
     let yesterday = $state(localDateString(new Date(), -1));
@@ -33,6 +38,34 @@
     const now = new Date();
     let calendarYear = $state(now.getFullYear());
     let calendarMonth = $state(now.getMonth());
+
+    // ── Daily goal ─────────────────────────────────────────────────────────
+    let goalInput = $state(30);
+    let goalSaving = $state(false);
+    let goalError = $state<string | null>(null);
+    const showLowGoalWarning = $derived(goalInput >= MIN_GOAL_MINUTES && goalInput <= LOW_GOAL_WARNING_THRESHOLD_MINUTES);
+
+    async function saveGoal() {
+        if (!Number.isInteger(goalInput) || goalInput < MIN_GOAL_MINUTES) {
+            goalError = `Goal must be at least ${MIN_GOAL_MINUTES} minute.`;
+            return;
+        }
+        goalSaving = true;
+        goalError = null;
+        try {
+            const res = await fetch('/api/goal', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dailyGoalMinutes: goalInput })
+            });
+            if (!res.ok) throw new Error('Failed to save goal');
+            await loadData();
+        } catch {
+            goalError = 'Could not save your goal. Please try again.';
+        } finally {
+            goalSaving = false;
+        }
+    }
 
     const MONTH_NAMES = [
         'January', 'February', 'March', 'April', 'May', 'June',
@@ -59,7 +92,9 @@
             ]);
             if (!statsRes.ok || !streakRes.ok) throw new Error('Failed to load stats');
             statsData = await statsRes.json();
-            streakData = await streakRes.json();
+            const streak: StreakData = await streakRes.json();
+            streakData = streak;
+            goalInput = streak.dailyGoalMinutes;
         } catch {
             error = 'Could not load stats. Please try again.';
         } finally {
@@ -229,6 +264,62 @@
                     Seen
                 </div>
                 <span class="text-2xl font-bold text-terracotta tabular-nums">{statsData.totalSeen}</span>
+            </div>
+        </div>
+
+        <!-- Daily goal -->
+        <div class="bg-canvas border border-muted rounded-xl p-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                    <Target class="w-4 h-4 text-terracotta" />
+                    Daily Goal
+                </div>
+                <form
+                    onsubmit={(e) => { e.preventDefault(); saveGoal(); }}
+                    class="flex items-center gap-2"
+                >
+                    <input
+                        type="number"
+                        min={MIN_GOAL_MINUTES}
+                        step="1"
+                        bind:value={goalInput}
+                        class="rounded-lg border-muted w-20 text-center text-sm"
+                        aria-label="Daily goal in minutes"
+                    />
+                    <span class="text-xs text-warm-gray">minutes / day</span>
+                    <button
+                        type="submit"
+                        disabled={goalSaving || goalInput === streakData.dailyGoalMinutes}
+                        class="btn btn-primary text-xs px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {goalSaving ? 'Saving…' : 'Save'}
+                    </button>
+                </form>
+            </div>
+
+            {#if showLowGoalWarning}
+                <p class="flex items-center gap-1.5 text-xs text-amber-600">
+                    <TriangleAlert class="w-3.5 h-3.5 shrink-0" />
+                    A goal this low won't build much of a drawing habit. Consider aiming higher.
+                </p>
+            {/if}
+            {#if goalError}
+                <p class="text-xs text-red-600">{goalError}</p>
+            {/if}
+
+            <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between text-xs text-warm-gray">
+                    <span>Today's progress</span>
+                    <span class="tabular-nums">
+                        {Math.floor(streakData.todaySeconds / 60)}m{streakData.todaySeconds % 60 > 0 ? ` ${streakData.todaySeconds % 60}s` : ''} / {streakData.dailyGoalMinutes}m
+                    </span>
+                </div>
+                <div class="h-2 rounded-full bg-pressed overflow-hidden">
+                    <div
+                        class="h-full bg-terracotta transition-all"
+                        style="width: {Math.min(100, (streakData.todaySeconds / (streakData.dailyGoalMinutes * 60)) * 100)}%"
+                    ></div>
+                </div>
             </div>
         </div>
 

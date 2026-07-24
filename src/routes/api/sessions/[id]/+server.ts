@@ -3,6 +3,9 @@ import { db } from '$lib/server/db';
 import { images, sessionImages, sessions, userImageStats } from '$lib/server/db/schema';
 import { and, asc, eq } from 'drizzle-orm';
 import type { RequestHandler } from '@sveltejs/kit';
+import { updateSessionLocalDate } from '$lib/server/sessionUtils';
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const GET: RequestHandler = ({ params, locals }) => {
 	const userId = locals.user!.id;
@@ -48,4 +51,18 @@ export const GET: RequestHandler = ({ params, locals }) => {
 		drawnImages: fetchImages('drawn'),
 		skippedImages: fetchImages('skipped')
 	});
+};
+
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+	const userId = locals.user!.id;
+	const sessionId = params.id!;
+	const { localDate }: { localDate: string } = await request.json();
+
+	if (typeof localDate !== 'string' || !DATE_RE.test(localDate)) {
+		return json({ error: 'Invalid localDate' }, { status: 400 });
+	}
+
+	updateSessionLocalDate(userId, sessionId, localDate);
+
+	return json({ ok: true });
 };

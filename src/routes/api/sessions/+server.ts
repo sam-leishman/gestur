@@ -4,6 +4,7 @@ import { sessions } from '$lib/server/db/schema';
 import { and, count, desc, eq, gte, lte } from 'drizzle-orm';
 import type { RequestHandler } from '@sveltejs/kit';
 import { recordSession, type SessionResultStatus } from '$lib/server/sessionUtils';
+import { getDailyGoalMinutes } from '$lib/server/settingsUtils';
 
 const STATUS_VALUES = ['completed', 'stopped'] as const;
 
@@ -72,7 +73,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		targetCount,
 		durationSeconds,
 		startedAt,
-		status
+		status,
+		localDate
 	}: {
 		draws: string[];
 		skips: string[];
@@ -80,6 +82,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		durationSeconds: number;
 		startedAt: string;
 		status: SessionResultStatus;
+		localDate: string;
 	} = body;
 
 	const validPayload =
@@ -89,7 +92,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		Number.isFinite(targetCount) && targetCount >= 1 &&
 		Number.isFinite(durationSeconds) && durationSeconds >= 1 &&
 		isStatus(status) &&
-		typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt));
+		typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt)) &&
+		typeof localDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(localDate);
 
 	if (!validPayload) {
 		return json({ error: 'Invalid payload' }, { status: 400 });
@@ -103,7 +107,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		targetCount,
 		durationSeconds,
 		draws,
-		skips
+		skips,
+		localDate,
+		goalMinutesSnapshot: getDailyGoalMinutes(userId)
 	});
 
 	return json({ id }, { status: 201 });

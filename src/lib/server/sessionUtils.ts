@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db';
 import { sessionImages, sessions, userImageStats } from '$lib/server/db/schema';
-import { sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 type StatField = 'drawCount' | 'skipCount';
 const SQL_COL: Record<StatField, ReturnType<typeof sql>> = {
@@ -29,6 +29,8 @@ export type RecordSessionInput = {
 	durationSeconds: number;
 	draws: string[];
 	skips: string[];
+	localDate: string;
+	goalMinutesSnapshot: number;
 };
 
 /**
@@ -36,7 +38,18 @@ export type RecordSessionInput = {
  * (with its ordered drawn/skipped image entries) in one transaction.
  */
 export function recordSession(input: RecordSessionInput): string {
-	const { userId, startedAt, completedAt, status, targetCount, durationSeconds, draws, skips } = input;
+	const {
+		userId,
+		startedAt,
+		completedAt,
+		status,
+		targetCount,
+		durationSeconds,
+		draws,
+		skips,
+		localDate,
+		goalMinutesSnapshot
+	} = input;
 	let sessionId = '';
 
 	db.transaction(() => {
@@ -53,7 +66,9 @@ export function recordSession(input: RecordSessionInput): string {
 				targetCount,
 				durationSeconds,
 				drawnCount: draws.length,
-				skippedCount: skips.length
+				skippedCount: skips.length,
+				localDate,
+				goalMinutesSnapshot
 			})
 			.returning()
 			.all();
@@ -83,4 +98,61 @@ export function recordSession(input: RecordSessionInput): string {
 	});
 
 	return sessionId;
+}
+
+/**
+ * Re-attributes an already-persisted session to a different local date.
+ * Used by the midnight-grace flow, where a session completed just after
+ * midnight can be counted toward the previous day instead.
+ */
+export function updateSessionLocalDate(userId: string, sessionId: string, localDate: string): void {
+	db.update(sessions)
+		.set({ localDate })
+		.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+		.run();
+}
+
+export type DailyActivity = {
+	localDate: string;
+	totalSeconds: number;
+	goalMinutes: number;
+};
+
+/**
+ * Aggregates drawn time per local date from session history.
+ * Contributed time per session is drawnCount * durationSeconds, so stopped
+ * sessions still count for whatever was actually drawn. Each date's goal
+ * reflects the goal snapshot from that date's most recently started session,
+ * so historical qualification stays tied to the goal active at the time.
+ */
+export function getDailyActivity(userId: string): DailyActivity[] {
+	const rows = db
+		.select({
+			localDate: sessions.localDate,
+			drawnCount: sessions.drawnCount,
+			durationSeconds: sessions.durationSeconds,
+			goalMinutesSnapshot: sessions.goalMinutesSnapshot
+		})
+		.from(sessions)
+		.where(eq(sessions.userId, userId))
+		.orderBy(asc(sessions.startedAt))
+		.all();
+
+	const byDate = new Map<string, DailyActivity>();
+	for (const row of rows) {
+		const existing = byDate.get(row.localDate);
+		const contributedSeconds = row.drawnCount * row.durationSeconds;
+		if (existing) {
+			existing.totalSeconds += contributedSeconds;
+			existing.goalMinutes = row.goalMinutesSnapshot;
+		} else {
+			byDate.set(row.localDate, {
+				localDate: row.localDate,
+				totalSeconds: contributedSeconds,
+				goalMinutes: row.goalMinutesSnapshot
+			});
+		}
+	}
+
+	return [...byDate.values()];
 }

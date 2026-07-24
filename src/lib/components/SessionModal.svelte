@@ -33,6 +33,7 @@
     let selectedImage = $state<SessionImage | null>(null);
     let likedIds = $state(new Set<string>());
     let midnightGrace = $state(false);
+    let persistedSessionId: string | null = null;
 
     // ── Internal ───────────────────────────────────────────────────────────────
     let pool: SessionImage[] = [];
@@ -79,6 +80,7 @@
         selectedImage = null;
         likedIds = new Set();
         midnightGrace = false;
+        persistedSessionId = null;
         pool = shuffle(images);
         poolIndex = 0;
         currentImage = pool[poolIndex] ?? null;
@@ -132,25 +134,22 @@
         complete = true;
         persistSession('completed');
         fetchLikedStatus();
-        if (drawnImages.length > 0) scheduleDrawingDay();
     }
 
-    function scheduleDrawingDay() {
-        const now = new Date();
-        if (now.getHours() < 2) {
+    function scheduleMidnightGraceIfNeeded() {
+        if (new Date().getHours() < 2) {
             midnightGrace = true;
-        } else {
-            recordDrawingDay(localDateString(now));
         }
     }
 
-    async function recordDrawingDay(date: string) {
+    async function attributeSessionToDate(date: string) {
         midnightGrace = false;
+        if (!persistedSessionId) return;
         try {
-            await fetch('/api/streak/day', {
-                method: 'POST',
+            await fetch(`/api/sessions/${persistedSessionId}`, {
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ date })
+                body: JSON.stringify({ localDate: date })
             });
         } catch { /* ignore */ }
     }
@@ -160,7 +159,7 @@
         const skips = skippedImages.map((img) => img.id);
         if (draws.length === 0 && skips.length === 0) return;
         try {
-            await fetch('/api/sessions', {
+            const res = await fetch('/api/sessions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -169,9 +168,15 @@
                     targetCount,
                     durationSeconds,
                     startedAt: startedAt.toISOString(),
-                    status
+                    status,
+                    localDate: localDateString(new Date())
                 })
             });
+            if (res.ok) {
+                const data: { id: string } = await res.json();
+                persistedSessionId = data.id;
+                if (draws.length > 0) scheduleMidnightGraceIfNeeded();
+            }
         } catch { /* ignore */ }
     }
 
@@ -234,14 +239,12 @@
     function handleStop() {
         if (complete) { open = false; return; }
         stopTimer();
-        const completedDraws = drawnImages.length;
         if (currentImage) skippedImages = [...skippedImages, currentImage];
         if (drawnImages.length === 0 && skippedImages.length === 0) { open = false; return; }
         stoppedEarly = true;
         complete = true;
         persistSession('stopped');
         fetchLikedStatus();
-        if (completedDraws > 0) scheduleDrawingDay();
     }
 
     function handleClose() {
@@ -339,14 +342,14 @@
                             <div class="flex items-center gap-2 shrink-0">
                                 <button
                                     type="button"
-                                    onclick={() => recordDrawingDay(localDateString(new Date(), -1))}
+                                    onclick={() => attributeSessionToDate(localDateString(new Date(), -1))}
                                     class="px-3 py-1.5 rounded-full bg-terracotta hover:bg-terracotta/80 text-white text-sm font-medium transition-colors"
                                 >
                                     Yes, yesterday
                                 </button>
                                 <button
                                     type="button"
-                                    onclick={() => recordDrawingDay(localDateString(new Date()))}
+                                    onclick={() => (midnightGrace = false)}
                                     class="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
                                 >
                                     No, today

@@ -200,19 +200,18 @@ export const imageTagsRelations = relations(imageTags, ({ one }) => ({
 
 
 // ===========================================================================
-// DRAWING DAYS
+// USER SETTINGS
 // ===========================================================================
-export const drawingDays = sqliteTable('drawing_days', {
-	id: text('id')
+export const userSettings = sqliteTable('user_settings', {
+	userId: text('user_id')
 		.primaryKey()
-		.$defaultFn(() => crypto.randomUUID()),
-	userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	date: text('date').notNull()
-}, (table) => [unique('drawing_days_user_date_unique').on(table.userId, table.date)]);
+		.references(() => user.id, { onDelete: 'cascade' }),
+	dailyGoalMinutes: integer('daily_goal_minutes').notNull().default(30)
+});
 
-export const drawingDaysRelations = relations(drawingDays, ({ one }) => ({
+export const userSettingsRelations = relations(userSettings, ({ one }) => ({
 	user: one(user, {
-		fields: [drawingDays.userId],
+		fields: [userSettings.userId],
 		references: [user.id]
 	})
 }));
@@ -233,7 +232,9 @@ export const sessions = sqliteTable('sessions', {
 	targetCount: integer('target_count').notNull(),
 	durationSeconds: integer('duration_seconds').notNull(),
 	drawnCount: integer('drawn_count').notNull().default(0),
-	skippedCount: integer('skipped_count').notNull().default(0)
+	skippedCount: integer('skipped_count').notNull().default(0),
+	localDate: text('local_date').notNull(),
+	goalMinutesSnapshot: integer('goal_minutes_snapshot').notNull()
 });
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
