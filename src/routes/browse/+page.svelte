@@ -1,10 +1,11 @@
 <script lang="ts">
-    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, Plus, Search, Square, X } from 'lucide-svelte';
+    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
     import { isImageFile } from '$lib/utils/images';
 
     type FilterType = 'all' | 'catalogued' | 'uncatalogued';
+    type ViewMode = 'grid' | 'list';
     type BrowseItem =
         | { name: string; type: 'dir' }
         | { name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string };
@@ -18,6 +19,26 @@
     let items = $state<BrowseItem[]>([]);
     let loading = $state(true);
     let fetchError = $state<string | null>(null);
+
+    // ── View mode (grid/list, persisted per user) ────────────────────────────
+    let viewMode = $state<ViewMode>('grid');
+
+    $effect(() => {
+        fetch('/api/browse-view-mode')
+            .then((r) => r.json())
+            .then((data: { browseViewMode: ViewMode }) => { viewMode = data.browseViewMode; })
+            .catch(() => {});
+    });
+
+    async function setViewMode(mode: ViewMode) {
+        if (viewMode === mode) return;
+        viewMode = mode;
+        await fetch('/api/browse-view-mode', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ browseViewMode: mode })
+        });
+    }
 
     // ── Detail panel state ─────────────────────────────────────────────────────
     let selectedFilePath = $state<string | null>(null);
@@ -181,6 +202,9 @@
     const fileItems = $derived(
         items.filter((i): i is BrowseItem & { type: 'file' } => i.type === 'file')
     );
+    const dirItems = $derived(
+        items.filter((i): i is BrowseItem & { type: 'dir' } => i.type === 'dir')
+    );
     const allFilesSelected = $derived(
         fileItems.length > 0 && fileItems.every((i) => selectedPaths.has(getRelPath(i)))
     );
@@ -271,6 +295,27 @@
     }
 
     // ── Keyboard navigation ────────────────────────────────────────────────
+    // Navigation is spatial rather than view-specific: we measure how many
+    // items share the same row (1 in list view, N in grid view) and derive
+    // up/down/left/right movement from that, so the same logic works for
+    // both view modes without branching on `viewMode`.
+    function getColumnsPerRow(): number {
+        if (!listContainer) return 1;
+        const cells = Array.from(listContainer.querySelectorAll<HTMLElement>('[data-kb-index]'));
+        if (cells.length < 2) return 1;
+        // Use getBoundingClientRect (viewport-relative) rather than offsetTop, since
+        // offsetTop is relative to each element's offsetParent — grid cards wrap their
+        // data-kb-index button in a `position: relative` div, which would otherwise
+        // make every button report offsetTop 0 and break row detection.
+        const firstTop = cells[0].getBoundingClientRect().top;
+        let count = 0;
+        for (const cell of cells) {
+            if (Math.abs(cell.getBoundingClientRect().top - firstTop) < 1) count++;
+            else break;
+        }
+        return Math.max(count, 1);
+    }
+
     function navigateToIndex(index: number) {
         if (items.length === 0) return;
         focusedIndex = Math.max(0, Math.min(index, items.length - 1));
@@ -295,13 +340,20 @@
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();
-                navigateToIndex(focusedIndex < 0 ? 0 : focusedIndex + 1);
+                navigateToIndex(focusedIndex < 0 ? 0 : focusedIndex + getColumnsPerRow());
                 break;
             case 'ArrowUp':
                 e.preventDefault();
-                navigateToIndex(focusedIndex < 0 ? items.length - 1 : focusedIndex - 1);
+                navigateToIndex(focusedIndex < 0 ? items.length - 1 : focusedIndex - getColumnsPerRow());
                 break;
             case 'ArrowRight':
+                e.preventDefault();
+                navigateToIndex(focusedIndex < 0 ? 0 : focusedIndex + 1);
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                navigateToIndex(focusedIndex < 0 ? 0 : focusedIndex - 1);
+                break;
             case 'Enter': {
                 const focused = focusedIndex >= 0 ? items[focusedIndex] : null;
                 if (focused?.type === 'dir') {
@@ -310,7 +362,7 @@
                 }
                 break;
             }
-            case 'ArrowLeft':
+            case 'Backspace':
                 if (currentPath.length > 0 && !search) {
                     e.preventDefault();
                     navigateTo(currentPath.length - 1);
@@ -406,6 +458,150 @@
     }
 </script>
 
+{#snippet dirRow(item: BrowseItem & { type: 'dir' }, i: number)}
+    <button
+        type="button"
+        data-kb-index={i}
+        onclick={() => navigateInto(item.name)}
+        class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
+            {focusedIndex === i ? 'bg-pressed' : 'hover:bg-pressed'}"
+    >
+        <Folder class="w-5 h-5 text-terracotta shrink-0" />
+        <span class="text-ink flex-1 truncate">{item.name}</span>
+        <ChevronRight class="w-4 h-4 text-muted shrink-0" />
+    </button>
+{/snippet}
+
+{#snippet dirCard(item: BrowseItem & { type: 'dir' }, i: number)}
+    <div
+        class="group relative aspect-square rounded-lg overflow-hidden border transition-colors
+            {focusedIndex === i ? 'border-terracotta ring-2 ring-terracotta/40' : 'border-muted hover:border-warm-gray'}"
+    >
+        <button
+            type="button"
+            data-kb-index={i}
+            onclick={() => navigateInto(item.name)}
+            class="block w-full h-full focus:outline-none"
+        >
+            <div class="w-full h-full flex items-center justify-center bg-pressed">
+                <Folder class="w-8 h-8 text-terracotta" />
+            </div>
+        </button>
+        <div class="absolute bottom-0 left-0 right-0 px-1.5 pt-4 pb-1 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+            <span class="text-[11px] text-white truncate block">{item.name}</span>
+        </div>
+    </div>
+{/snippet}
+
+{#snippet fileRow(item: BrowseItem & { type: 'file' }, i: number)}
+    {@const relPath = search ? item.name : [...currentPath, item.name].join('/')}
+    {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
+    <div
+        class="group flex items-center rounded-lg transition-colors
+            {isSelected
+                ? 'bg-terracotta-tint border border-terracotta/30'
+                : 'hover:bg-pressed'}"
+    >
+        <button
+            type="button"
+            data-kb-index={i}
+            onclick={(e) => handleFileClick(item, i, e)}
+            class="flex items-center gap-3 py-3 pl-2 text-left flex-1 min-w-0 focus:outline-none
+                {item.catalogued && !selectMode ? 'pr-1' : 'pr-2'}"
+        >
+            {#if selectMode}
+                {#if isSelected}
+                    <CheckSquare class="w-5 h-5 text-terracotta shrink-0" />
+                {:else}
+                    <Square class="w-5 h-5 text-warm-gray shrink-0" />
+                {/if}
+            {:else if isImageFile(item.name)}
+                <FileImage class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
+            {:else}
+                <File class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
+            {/if}
+            <span class="text-ink flex-1 truncate text-sm">{item.name}</span>
+            {#if item.catalogued}
+                <span class="text-xs px-2 py-0.5 bg-terracotta-tint text-terracotta rounded-full font-medium shrink-0">
+                    Catalogued
+                </span>
+            {/if}
+        </button>
+        {#if item.catalogued && !selectMode && item.imageId}
+            <button
+                type="button"
+                onclick={() => toggleLikeById(item.imageId!, relPath)}
+                class="shrink-0 p-1.5 mr-1 rounded transition-opacity {item.liked ? 'text-terracotta opacity-100' : 'text-warm-gray opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
+                aria-label={item.liked ? 'Unlike' : 'Like'}
+            >
+                <Heart class="w-3.5 h-3.5 {item.liked ? 'fill-current' : ''}" />
+            </button>
+        {/if}
+    </div>
+{/snippet}
+
+{#snippet fileCard(item: BrowseItem & { type: 'file' }, i: number)}
+    {@const relPath = search ? item.name : [...currentPath, item.name].join('/')}
+    {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
+    <div
+        class="group relative aspect-square rounded-lg overflow-hidden border transition-colors
+            {isSelected ? 'border-terracotta ring-2 ring-terracotta/40' : 'border-muted hover:border-warm-gray'}"
+    >
+        <button
+            type="button"
+            data-kb-index={i}
+            onclick={(e) => handleFileClick(item, i, e)}
+            class="block w-full h-full focus:outline-none"
+        >
+            {#if isImageFile(item.name)}
+                <img
+                    src="/api/images/file?path={encodeURIComponent(relPath)}"
+                    alt={item.name}
+                    class="w-full h-full object-cover"
+                    draggable="false"
+                    loading="lazy"
+                />
+            {:else}
+                <div class="w-full h-full flex items-center justify-center bg-pressed">
+                    <File class="w-8 h-8 text-warm-gray" />
+                </div>
+            {/if}
+        </button>
+
+        {#if selectMode}
+            <div class="absolute top-1.5 left-1.5 pointer-events-none">
+                {#if isSelected}
+                    <CheckSquare class="w-5 h-5 text-terracotta drop-shadow" />
+                {:else}
+                    <Square class="w-5 h-5 text-white drop-shadow" />
+                {/if}
+            </div>
+        {/if}
+
+        {#if item.catalogued}
+            <span class="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 bg-terracotta-tint text-terracotta rounded-full font-medium">
+                Catalogued
+            </span>
+        {/if}
+
+        <div class="absolute bottom-0 left-0 right-0 px-1.5 pt-4 pb-1 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+            <span class="text-[11px] text-white truncate block">{item.name}</span>
+        </div>
+
+        {#if item.catalogued && !selectMode && item.imageId}
+            <button
+                type="button"
+                onclick={() => toggleLikeById(item.imageId!, relPath)}
+                class="absolute bottom-1 right-1 p-1 rounded-md bg-black/50 backdrop-blur-sm transition-opacity
+                    {item.liked ? 'opacity-100 text-terracotta' : 'text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
+                aria-label={item.liked ? 'Unlike' : 'Like'}
+            >
+                <Heart class="w-3.5 h-3.5 {item.liked ? 'fill-current' : ''}" />
+            </button>
+        {/if}
+    </div>
+{/snippet}
+
 <div class="p-4 flex flex-col gap-4 h-[calc(100vh-var(--header-height))]">
     <!-- Search and filters -->
     <div class="flex flex-col gap-3 border-muted border p-4 rounded-lg bg-canvas">
@@ -437,7 +633,7 @@
         <!-- File browser panel -->
         <div class="
             bg-canvas rounded-lg p-4 flex flex-col gap-3 min-h-0
-            {selectedFilePath && !selectMode ? 'hidden lg:flex lg:w-80 lg:shrink-0' : selectMode ? 'flex flex-1 lg:flex-none lg:w-80 lg:shrink-0' : 'flex flex-1'}
+            {selectedFilePath && !selectMode ? 'hidden lg:flex lg:flex-1' : selectMode ? 'flex flex-1 lg:flex-none lg:w-80 lg:shrink-0' : 'flex flex-1'}
         ">
             <!-- Breadcrumb + select toggle -->
             <div class="flex items-center gap-2 min-h-6">
@@ -465,6 +661,26 @@
                         {/if}
                     {/each}
                 </nav>
+                <div class="flex items-center gap-0.5 shrink-0 border border-muted rounded-lg p-0.5">
+                    <button
+                        type="button"
+                        onclick={() => setViewMode('grid')}
+                        class="p-1 rounded-md transition-colors {viewMode === 'grid' ? 'bg-terracotta-tint text-terracotta' : 'text-warm-gray hover:text-ink hover:bg-pressed'}"
+                        aria-label="Grid view"
+                        aria-pressed={viewMode === 'grid'}
+                    >
+                        <LayoutGrid class="w-4 h-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onclick={() => setViewMode('list')}
+                        class="p-1 rounded-md transition-colors {viewMode === 'list' ? 'bg-terracotta-tint text-terracotta' : 'text-warm-gray hover:text-ink hover:bg-pressed'}"
+                        aria-label="List view"
+                        aria-pressed={viewMode === 'list'}
+                    >
+                        <List class="w-4 h-4" />
+                    </button>
+                </div>
                 <button
                     type="button"
                     onclick={() => selectMode ? exitSelectMode() : enterSelectMode()}
@@ -483,80 +699,54 @@
                 class="flex-1 overflow-y-auto min-h-0 {selectMode && selectedPaths.size > 0 ? 'pb-20 lg:pb-0' : ''}"
             >
                 {#if loading}
-                    <div class="flex flex-col divide-y divide-muted">
-                        {#each Array(6) as _, i (i)}
-                            <div class="flex items-center gap-3 py-3 px-2 animate-pulse">
-                                <div class="w-5 h-5 bg-pressed rounded shrink-0"></div>
-                                <div class="h-4 bg-pressed rounded" style="width: {48 + (i * 13) % 40}%"></div>
-                            </div>
-                        {/each}
-                    </div>
+                    {#if viewMode === 'grid'}
+                        <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+                            {#each Array(6) as _, i (i)}
+                                <div class="aspect-square bg-pressed rounded-lg animate-pulse" style="opacity: {1 - i * 0.12}"></div>
+                            {/each}
+                        </div>
+                    {:else}
+                        <div class="flex flex-col divide-y divide-muted">
+                            {#each Array(6) as _, i (i)}
+                                <div class="flex items-center gap-3 py-3 px-2 animate-pulse">
+                                    <div class="w-5 h-5 bg-pressed rounded shrink-0"></div>
+                                    <div class="h-4 bg-pressed rounded" style="width: {48 + (i * 13) % 40}%"></div>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                 {:else if fetchError}
                     <p class="text-warm-gray text-center py-8">{fetchError}</p>
                 {:else if items.length === 0}
                     <p class="text-warm-gray text-center py-8">No items found</p>
-                {:else}
+                {:else if viewMode === 'list'}
                     <div class="flex flex-col divide-y divide-muted">
                         {#each items as item, i (item.name)}
                             {#if item.type === 'dir'}
-                                <button
-                                    type="button"
-                                    data-kb-index={i}
-                                    onclick={() => navigateInto(item.name)}
-                                    class="flex items-center gap-3 py-3 px-2 rounded-lg transition-colors text-left w-full focus:outline-none
-                                        {focusedIndex === i ? 'bg-pressed' : 'hover:bg-pressed'}"
-                                >
-                                    <Folder class="w-5 h-5 text-terracotta shrink-0" />
-                                    <span class="text-ink flex-1 truncate">{item.name}</span>
-                                    <ChevronRight class="w-4 h-4 text-muted shrink-0" />
-                                </button>
+                                {@render dirRow(item, i)}
                             {:else}
-                                {@const relPath = search ? item.name : [...currentPath, item.name].join('/')}
-                                {@const isSelected = selectMode ? selectedPaths.has(relPath) : selectedFilePath === relPath}
-                                <div
-                                    class="group flex items-center rounded-lg transition-colors
-                                        {isSelected
-                                            ? 'bg-terracotta-tint border border-terracotta/30'
-                                            : 'hover:bg-pressed'}"
-                                >
-                                    <button
-                                        type="button"
-                                        data-kb-index={i}
-                                        onclick={(e) => handleFileClick(item, i, e)}
-                                        class="flex items-center gap-3 py-3 pl-2 text-left flex-1 min-w-0 focus:outline-none
-                                            {item.catalogued && !selectMode ? 'pr-1' : 'pr-2'}"
-                                    >
-                                        {#if selectMode}
-                                            {#if isSelected}
-                                                <CheckSquare class="w-5 h-5 text-terracotta shrink-0" />
-                                            {:else}
-                                                <Square class="w-5 h-5 text-warm-gray shrink-0" />
-                                            {/if}
-                                        {:else if isImageFile(item.name)}
-                                            <FileImage class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
-                                        {:else}
-                                            <File class="w-5 h-5 {isSelected ? 'text-terracotta' : 'text-warm-gray'} shrink-0" />
-                                        {/if}
-                                        <span class="text-ink flex-1 truncate text-sm">{item.name}</span>
-                                        {#if item.catalogued}
-                                            <span class="text-xs px-2 py-0.5 bg-terracotta-tint text-terracotta rounded-full font-medium shrink-0">
-                                                Catalogued
-                                            </span>
-                                        {/if}
-                                    </button>
-                                    {#if item.catalogued && !selectMode && item.imageId}
-                                        <button
-                                            type="button"
-                                            onclick={() => toggleLikeById(item.imageId!, relPath)}
-                                            class="shrink-0 p-1.5 mr-1 rounded transition-opacity {item.liked ? 'text-terracotta opacity-100' : 'text-warm-gray opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
-                                            aria-label={item.liked ? 'Unlike' : 'Like'}
-                                        >
-                                            <Heart class="w-3.5 h-3.5 {item.liked ? 'fill-current' : ''}" />
-                                        </button>
-                                    {/if}
-                                </div>
+                                {@render fileRow(item, i)}
                             {/if}
                         {/each}
+                    </div>
+                {:else}
+                    <div class="flex flex-col gap-4">
+                        {#if dirItems.length > 0}
+                            <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+                                {#each dirItems as item (item.name)}
+                                    {@const i = items.indexOf(item)}
+                                    {@render dirCard(item, i)}
+                                {/each}
+                            </div>
+                        {/if}
+                        {#if fileItems.length > 0}
+                            <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+                                {#each fileItems as item (item.name)}
+                                    {@const i = items.indexOf(item)}
+                                    {@render fileCard(item, i)}
+                                {/each}
+                            </div>
+                        {/if}
                     </div>
                 {/if}
             </div>

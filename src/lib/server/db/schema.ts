@@ -206,7 +206,8 @@ export const userSettings = sqliteTable('user_settings', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	dailyGoalMinutes: integer('daily_goal_minutes').notNull().default(30)
+	dailyGoalMinutes: integer('daily_goal_minutes').notNull().default(30),
+	browseViewMode: text('browse_view_mode', { enum: ['grid', 'list'] }).notNull().default('grid')
 });
 
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
