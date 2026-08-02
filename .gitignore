@@ -26,3 +26,5 @@ vite.config.ts.timestamp-*
 
 /DEV_MOUNTS/data
 /DEV_MOUNTS/images
+/DOCKER_MOUNTS/data
+/DOCKER_MOUNTS/images
