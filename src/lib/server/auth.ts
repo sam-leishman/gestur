@@ -7,12 +7,17 @@ import { db } from '$lib/server/db';
 import { config } from './config';
 
 export const auth = betterAuth({
-	baseURL: config.auth.origin,
+	baseURL: {
+		allowedHosts: [...config.auth.allowedHosts]
+	},
 	secret: config.auth.secret,
 	database: drizzleAdapter(db, { provider: 'sqlite' }),
 	emailAndPassword: { enabled: true },
 	plugins: [
 		username(),
 		sveltekitCookies(getRequestEvent) // make sure this is the last plugin in the array
-	]
+	],
+	advanced: {
+		trustedProxyHeaders: true
+	}
 });

@@ -46,6 +46,11 @@ export const config = {
     },
     auth: {
         secret: getOrCreateSecret(),
-        origin: env.ORIGIN || (isProduction ? 'http://localhost:3000' : 'http://localhost:5173'),
+        // 'localhost:*' covers any local dev/docker port. Additional hosts (e.g. a reverse-proxied
+        // domain) are supplied via AUTH_ALLOWED_HOSTS as a comma-separated list.
+        allowedHosts: [
+            'localhost:*',
+            ...(env.AUTH_ALLOWED_HOSTS?.split(',').map((h) => h.trim()).filter(Boolean) ?? [])
+        ],
     },
 } as const;
