@@ -5,6 +5,6 @@ import type { RequestHandler } from '@sveltejs/kit';
 export const POST: RequestHandler = async ({ request, locals }) => {
     const userId = locals.user!.id;
     const filter = normalizeSessionImageFilter(await request.json());
-    const images = getFilteredSessionImages(filter, userId);
-    return json({ images });
+    const matchCount = getFilteredSessionImages(filter, userId).length;
+    return json({ matchCount });
 };

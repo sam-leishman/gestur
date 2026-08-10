@@ -1,7 +1,8 @@
 <script lang="ts">
     import SessionModal from '$lib/components/SessionModal.svelte';
+    import SessionFilters from '$lib/components/SessionFilters.svelte';
     import { Play } from 'lucide-svelte';
-    import type { SessionImage } from '$lib/types';
+    import { createEmptySessionImageFilter, type SessionImage } from '$lib/types';
 
     const DURATION_PRESETS = [
         { label: '1m',  seconds: 60 },
@@ -24,6 +25,44 @@
     let loading = $state(false);
     let error = $state<string | null>(null);
 
+    let filter = $state(createEmptySessionImageFilter());
+    let matchCount = $state<number | null>(null);
+    let matchCountLoading = $state(false);
+
+    // ── Debounced match-count preview ───────────────────────────────────────
+    // `filter` is a deeply-mutated $state object (nested directory/subject/field
+    // arrays are updated in place by child components via `bind:`), so we must
+    // synchronously read its full contents here — via JSON.stringify — for the
+    // effect to depend on nested changes. Reading `filter` alone only tracks
+    // top-level reference reassignment, and doing the stringify lazily inside
+    // the setTimeout wouldn't register as a dependency read at all, since that
+    // callback runs outside the effect's tracking window.
+    $effect(() => {
+        const payload = JSON.stringify(filter);
+        matchCountLoading = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            fetch('/api/images/session/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                signal: controller.signal
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject()))
+                .then((data: { matchCount: number }) => {
+                    matchCount = data.matchCount;
+                    matchCountLoading = false;
+                })
+                .catch((err: Error) => {
+                    if (err.name !== 'AbortError') matchCountLoading = false;
+                });
+        }, 300);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    });
+
     const effectiveDuration = $derived(
         isCustom
             ? customMinutes * 60 + customSeconds
@@ -31,7 +70,7 @@
     );
 
     const canStart = $derived(
-        imageCount >= 1 && effectiveDuration >= 1
+        imageCount >= 1 && effectiveDuration >= 1 && matchCount !== 0
     );
 
     function selectPreset(seconds: number) {
@@ -53,11 +92,15 @@
         error = null;
         loading = true;
         try {
-            const res = await fetch('/api/images/session');
+            const res = await fetch('/api/images/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(filter)
+            });
             if (!res.ok) throw new Error('Failed to load images');
             const data: { images: SessionImage[] } = await res.json();
             if (data.images.length === 0) {
-                error = 'No catalogued images found. Add some images in the Browse section first.';
+                error = 'No images match your filters. Try adjusting them.';
                 loading = false;
                 return;
             }
@@ -139,6 +182,8 @@
             </div>
         {/if}
     </div>
+
+    <SessionFilters bind:filter {matchCount} {matchCountLoading} {imageCount} />
 
     {#if error}
         <p class="text-sm text-red-600">{error}</p>
