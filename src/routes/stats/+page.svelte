@@ -3,6 +3,7 @@
     import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, Pencil, SkipForward, Target, Trophy, TriangleAlert } from 'lucide-svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionHistoryDialog from '$lib/components/SessionHistoryDialog.svelte';
+    import ImageThumb from '$lib/components/ImageThumb.svelte';
     import type { SessionImage, SessionStatus, SessionSummary } from '$lib/types';
     import { localDateString } from '$lib/utils/date';
 
@@ -504,11 +505,11 @@
                                     class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
                                     title={imageName(img.filePath)}
                                 >
-                                    <img
+                                    <ImageThumb
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover"
-                                        draggable="false"
+                                        draggable={false}
                                     />
                                     <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
                                         <Pencil class="w-2 h-2" />
@@ -534,11 +535,11 @@
                                     class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
                                     title={imageName(img.filePath)}
                                 >
-                                    <img
+                                    <ImageThumb
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover"
-                                        draggable="false"
+                                        draggable={false}
                                     />
                                     <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
                                         <SkipForward class="w-2 h-2" />

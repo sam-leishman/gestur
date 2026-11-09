@@ -2,6 +2,8 @@
     import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
+    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import MissingFilesBanner from '$lib/components/MissingFilesBanner.svelte';
     import { isImageFile } from '$lib/utils/images';
 
     type FilterType = 'all' | 'catalogued' | 'uncatalogued';
@@ -554,11 +556,11 @@
             class="block w-full h-full focus:outline-none"
         >
             {#if isImageFile(item.name)}
-                <img
+                <ImageThumb
                     src="/api/images/file?path={encodeURIComponent(relPath)}"
                     alt={item.name}
                     class="w-full h-full object-cover"
-                    draggable="false"
+                    draggable={false}
                     loading="lazy"
                 />
             {:else}
@@ -603,6 +605,8 @@
 {/snippet}
 
 <div class="p-4 flex flex-col gap-4 h-[calc(100vh-var(--header-height))]">
+    <MissingFilesBanner />
+
     <!-- Search and filters -->
     <div class="flex flex-col gap-3 border-muted border p-4 rounded-lg bg-canvas">
         <div class="relative">
@@ -849,7 +853,7 @@
                 <!-- Image preview (fixed, never squishes) -->
                 <div class="bg-canvas rounded-lg border border-muted overflow-hidden flex items-center justify-center shrink-0 h-72">
                     {#if isImageFile(selectedFileName ?? '')}
-                        <img
+                        <ImageThumb
                             src="/api/images/file?path={encodeURIComponent(selectedFilePath)}"
                             alt={selectedFileName ?? ''}
                             class="max-w-full max-h-full object-contain"

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Plus, Pencil, Trash2, GripVertical, ChevronRight } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
+    import MissingFilesSection from '$lib/components/MissingFilesSection.svelte';
 
     type Subject = { id: string; name: string };
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
@@ -456,7 +457,8 @@
 </Modal>
 
 <!-- ── Page layout ───────────────────────────────────────────────────────────── -->
-<div class="p-4 flex gap-4 h-[calc(100vh-var(--header-height))]">
+<div class="p-4 flex flex-col gap-4 h-[calc(100vh-var(--header-height))] overflow-y-auto">
+    <div class="flex gap-4 flex-1 min-h-[20rem]">
 
     <!-- Subjects panel -->
     <div class="flex flex-col gap-3 w-64 shrink-0 bg-canvas border border-muted rounded-lg p-4 min-h-0">
@@ -621,4 +623,7 @@
             </div>
         {/if}
     </div>
+    </div>
+
+    <MissingFilesSection />
 </div>

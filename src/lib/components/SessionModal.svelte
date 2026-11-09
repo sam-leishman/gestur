@@ -4,6 +4,7 @@
     import type { SessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionResultView from '$lib/components/SessionResultView.svelte';
+    import ImageThumb from '$lib/components/ImageThumb.svelte';
     import { localDateString } from '$lib/utils/date';
 
     let {
@@ -126,6 +127,17 @@
     function handleSkip() {
         if (currentImage) skippedImages = [...skippedImages, currentImage];
         advanceImage();
+    }
+
+    // Safety net for the rare case where a file disappears from disk mid-session
+    // (the pool is already filtered to existing files when the session starts).
+    // Treat a failed load like an automatic skip rather than leaving the user
+    // staring at a broken image for the rest of the timer.
+    let erroredImageId: string | null = null;
+    function handleImageError() {
+        if (!currentImage || erroredImageId === currentImage.id) return;
+        erroredImageId = currentImage.id;
+        handleSkip();
     }
 
     function endSession() {
@@ -365,11 +377,12 @@
             <!-- Image display -->
             <div class="relative flex-1 flex items-center justify-center min-h-0 p-4">
                 {#if currentImage}
-                    <img
+                    <ImageThumb
                         src="/api/images/file?path={encodeURIComponent(currentImage.filePath)}"
                         alt=""
                         class="max-w-full max-h-full object-contain select-none"
-                        draggable="false"
+                        draggable={false}
+                        onerror={handleImageError}
                     />
                 {/if}
 

@@ -1,5 +1,6 @@
 import { db } from '$lib/server/db';
 import { images, userImageStats, imageSubjects, imageSubjectFieldValues } from '$lib/server/db/schema';
+import { imageExistsOnDisk } from '$lib/server/imageUtils';
 import { eq, and, inArray } from 'drizzle-orm';
 import {
 	ROOT_DIRECTORY_KEY,
@@ -137,7 +138,14 @@ function matchingImageIdsForSubjects(subjectFilters: SessionSubjectFilter[]): Se
  * semantics can never drift between the two.
  */
 export function getFilteredSessionImages(filter: SessionImageFilter, userId: string): SessionImage[] {
-	const allImages = db.select({ id: images.id, filePath: images.filePath }).from(images).all();
+	// Exclude catalogued rows whose file has been deleted from disk — this keeps
+	// the match-count preview and the actual session pool automatically in sync,
+	// since both call through this function.
+	const allImages = db
+		.select({ id: images.id, filePath: images.filePath })
+		.from(images)
+		.all()
+		.filter((image) => imageExistsOnDisk(image.filePath));
 
 	let candidateIds: Set<string> | null = null;
 

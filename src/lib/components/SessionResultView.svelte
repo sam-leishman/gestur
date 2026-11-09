@@ -2,6 +2,7 @@
     import { Heart } from 'lucide-svelte';
     import type { Snippet } from 'svelte';
     import type { SessionImage } from '$lib/types';
+    import ImageThumb from '$lib/components/ImageThumb.svelte';
 
     let {
         stoppedEarly,
@@ -37,11 +38,11 @@
                     class="w-full h-full hover:ring-2 hover:ring-white/30 transition-all focus-visible:ring-2 focus-visible:ring-white/30"
                     title={img.filePath.split('/').pop()}
                 >
-                    <img
+                    <ImageThumb
                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                         alt=""
                         class="w-full h-full object-cover"
-                        draggable="false"
+                        draggable={false}
                     />
                 </button>
                 <button

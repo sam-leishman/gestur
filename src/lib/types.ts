@@ -62,3 +62,14 @@ export type SessionDetail = SessionSummary & {
 	drawnImages: (SessionImage & { liked: boolean })[];
 	skippedImages: (SessionImage & { liked: boolean })[];
 };
+
+// ── Missing-file management ──────────────────────────────────────────────
+export type MissingImage = {
+	id: string;
+	filePath: string;
+	title: string;
+	subjectCount: number;
+	drawCount: number;
+	skipCount: number;
+	liked: boolean;
+};
