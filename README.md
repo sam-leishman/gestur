@@ -29,6 +29,17 @@ npm run dev
 npm run dev -- --open
 ```
 
+## Accounts and roles
+
+There is no public registration. On first launch (no users in the database) every page redirects to `/setup`, where you create the admin account. Set `SETUP_TOKEN` to require a token on that form.
+
+- `admin`: manages users (`/admin/users`), and has access to Browse, Data, and edits to global data (subjects, fields, image titles, relinking, bulk actions).
+- `user`: can draw, like, view stats, and tag images in the session modal.
+
+Role definitions and the admin-only route lists live in `src/lib/permissions.ts`. After changing `src/lib/server/auth.ts` plugins, run `npm run auth:schema` and `npm run db:generate`.
+
+If you lock yourself out, set a user's role directly: `UPDATE user SET role = 'admin' WHERE username = '...';`
+
 ## Building
 
 To create a production version of your app:

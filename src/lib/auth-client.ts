@@ -1,6 +1,7 @@
 import { createAuthClient } from "better-auth/svelte";
-import { usernameClient } from "better-auth/client/plugins";
+import { usernameClient, adminClient } from "better-auth/client/plugins";
+import { ac, roles } from "$lib/permissions";
 
 export const authClient = createAuthClient({
-    plugins: [usernameClient()]
+    plugins: [usernameClient(), adminClient({ ac, roles })]
 });

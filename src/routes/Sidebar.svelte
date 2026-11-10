@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { PencilLine, Image, Database, ChartNoAxesColumn } from "lucide-svelte";
+	import { PencilLine, Image, Database, ChartNoAxesColumn, Users } from "lucide-svelte";
+	import { authClient } from "$lib/auth-client";
+	import { hasPermission, requiredPagePermissions } from "$lib/permissions";
 
     let { isOpen = $bindable(true) } = $props();
 
@@ -8,7 +10,10 @@
 		return page.url.pathname === path || page.url.pathname.startsWith(path + '/');
 	};
 
-    const navItems = $derived([
+    const session = authClient.useSession();
+    const role = $derived($session.data?.user.role);
+
+    const allNavItems = $derived([
         {
             label: 'Draw',
             icon: PencilLine,
@@ -32,8 +37,21 @@
             icon: ChartNoAxesColumn,
             href: '/stats',
             isActive: isActive('/stats')
+        },
+        {
+            label: 'Users',
+            icon: Users,
+            href: '/admin/users',
+            isActive: isActive('/admin/users')
         }
     ]);
+
+    const navItems = $derived(
+        allNavItems.filter((item) => {
+            const required = requiredPagePermissions(item.href);
+            return !required || hasPermission(role, required);
+        })
+    );
 </script>
 
 <!-- Mobile overlay -->

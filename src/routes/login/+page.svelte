@@ -65,8 +65,5 @@
         {#if error}
             <p class="text-center text-red-500">{error}</p>
         {/if}
-        <p class="text-center">
-            Don't have an account? <a href="/register" class="text-terracotta hover:underline">Register</a>
-        </p>
     </form>
 </div>

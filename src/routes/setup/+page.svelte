@@ -1,35 +1,42 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
-    import { authClient } from "$lib/auth-client";
+    import { onMount } from "svelte";
+    import { goto } from "$app/navigation";
 
     let loading = $state(false);
     let error: string | undefined = $state(undefined);
+    let requiresToken = $state(false);
 
     let formData = $state({
         username: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        token: ''
     });
-    
-    async function handleRegister() {
+
+    onMount(async () => {
+        const res = await fetch('/api/setup');
+        ({ requiresToken } = await res.json());
+    });
+
+    async function handleSetup() {
         loading = true;
         error = undefined;
-        
+
         if (formData.password !== formData.confirmPassword) {
             error = 'Passwords do not match';
             loading = false;
             return;
         }
 
-        const { data, error: signUpError } = await authClient.signUp.email({
-            email: `${formData.username}@gestur.app`,
-            name: formData.username,
-            password: formData.password,
-            username: formData.username
+        const res = await fetch('/api/setup', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(formData)
         });
 
-        if (signUpError) {
-            error = signUpError.message || 'Registration failed';
+        if (!res.ok) {
+            const body = await res.json();
+            error = body.error || 'Setup failed';
             loading = false;
             return;
         }
@@ -41,14 +48,14 @@
 
 <div class="flex items-center justify-center min-h-screen p-4">
     <form
-        onsubmit={e => {e.preventDefault(); handleRegister()}}
+        onsubmit={e => {e.preventDefault(); handleSetup()}}
         class="flex flex-col gap-4 border-muted border p-4 rounded-lg bg-canvas shadow-lg w-100"
     >
         <div class="text-center">
             <h1 class="text-3xl font-bold">
                 Welcome to <span class="text-terracotta">Gestur</span>
             </h1>
-            <h2 class="text-lg text-warm-gray">Create an account</h2>
+            <h2 class="text-lg text-warm-gray">Create the admin account</h2>
         </div>
         <input
             type="text"
@@ -60,8 +67,9 @@
         <input
             type="password"
             bind:value={formData.password}
-            placeholder="Password"
+            placeholder="Password (min 8 characters)"
             required
+            minlength="8"
             class="w-full rounded-lg border-muted"
         />
         <input
@@ -71,18 +79,24 @@
             required
             class="w-full rounded-lg border-muted"
         />
+        {#if requiresToken}
+            <input
+                type="password"
+                bind:value={formData.token}
+                placeholder="Setup token"
+                required
+                class="w-full rounded-lg border-muted"
+            />
+        {/if}
         <button
             type="submit"
             disabled={loading}
             class="btn btn-primary"
         >
-            {loading ? 'Creating account...' : 'Create account'}
+            {loading ? 'Creating account...' : 'Create admin account'}
         </button>
         {#if error}
             <p class="text-center text-red-500">{error}</p>
         {/if}
-        <p class="text-center">
-            Already have an account? <a href="/login" class="text-terracotta hover:underline">Login</a>
-        </p>
     </form>
 </div>

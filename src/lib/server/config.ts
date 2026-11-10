@@ -46,6 +46,8 @@ export const config = {
     },
     auth: {
         secret: getOrCreateSecret(),
+        // Optional: if set, the first-run admin setup form requires this token.
+        setupToken: env.SETUP_TOKEN || '',
         // 'localhost:*' covers any local dev/docker port. Additional hosts (e.g. a reverse-proxied
         // domain) are supplied via AUTH_ALLOWED_HOSTS as a comma-separated list.
         allowedHosts: [
