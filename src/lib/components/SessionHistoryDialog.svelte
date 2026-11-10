@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { SessionDetail, SessionImage } from '$lib/types';
+    import type { DisplayableSessionImage, SessionDetail, SessionHistoryImage } from '$lib/types';
     import SessionResultView from '$lib/components/SessionResultView.svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
 
@@ -16,7 +16,7 @@
     let error = $state<string | null>(null);
     let likedIds = $state(new Set<string>());
     let imageModalOpen = $state(false);
-    let selectedImage = $state<SessionImage | null>(null);
+    let selectedImage = $state<DisplayableSessionImage | null>(null);
 
     $effect(() => {
         if (open && sessionId) {
@@ -40,7 +40,7 @@
             detail = data;
             likedIds = new Set(
                 [...data.drawnImages, ...data.skippedImages]
-                    .filter((img) => img.liked)
+                    .filter((img): img is SessionHistoryImage & { id: string } => img.liked && img.id !== null)
                     .map((img) => img.id)
             );
         } catch {

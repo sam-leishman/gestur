@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Pause, Play, SkipForward, Square } from 'lucide-svelte';
     import { fade } from 'svelte/transition';
-    import type { SessionImage } from '$lib/types';
+    import type { SessionImage, DisplayableSessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionResultView from '$lib/components/SessionResultView.svelte';
     import ImageThumb from '$lib/components/ImageThumb.svelte';
@@ -31,7 +31,7 @@
     let pauseIndicator = $state<'pause' | 'play' | null>(null);
     let stoppedEarly = $state(false);
     let imageModalOpen = $state(false);
-    let selectedImage = $state<SessionImage | null>(null);
+    let selectedImage = $state<DisplayableSessionImage | null>(null);
     let likedIds = $state(new Set<string>());
     let midnightGrace = $state(false);
     let persistedSessionId: string | null = null;

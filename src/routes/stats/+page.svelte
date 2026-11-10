@@ -1,13 +1,13 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, Pencil, SkipForward, Target, Trophy, TriangleAlert } from 'lucide-svelte';
+    import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, ImageOff, Pencil, SkipForward, Target, Trophy, TriangleAlert } from 'lucide-svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionHistoryDialog from '$lib/components/SessionHistoryDialog.svelte';
     import ImageThumb from '$lib/components/ImageThumb.svelte';
-    import type { SessionImage, SessionStatus, SessionSummary } from '$lib/types';
+    import type { DisplayableSessionImage, SessionStatus, SessionSummary } from '$lib/types';
     import { localDateString } from '$lib/utils/date';
 
-    type StatsImage = { imageId: string; filePath: string; drawCount?: number; skipCount?: number };
+    type StatsImage = { imageId: string | null; filePath: string; title: string; drawCount?: number; skipCount?: number };
     type StatsData = {
         totalDraws: number;
         totalSkips: number;
@@ -34,7 +34,7 @@
     let streakData = $state<StreakData | null>(null);
     let loading = $state(true);
     let error = $state<string | null>(null);
-    let selectedImage = $state<SessionImage | null>(null);
+    let selectedImage = $state<DisplayableSessionImage | null>(null);
     let imageModalOpen = $state(false);
     const now = new Date();
     let calendarYear = $state(now.getFullYear());
@@ -75,7 +75,8 @@
     const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     function openModal(img: StatsImage) {
-        selectedImage = { id: img.imageId, filePath: img.filePath };
+        if (!img.imageId) return;
+        selectedImage = { id: img.imageId, filePath: img.filePath, title: img.title };
         imageModalOpen = true;
     }
 
@@ -498,19 +499,26 @@
                             Most Drawn
                         </h2>
                         <div class="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                            {#each statsData.mostDrawn.slice(0, 6) as img (img.imageId)}
+                            {#each statsData.mostDrawn.slice(0, 6) as img (img.filePath)}
                                 <button
                                     type="button"
                                     onclick={() => openModal(img)}
-                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
-                                    title={imageName(img.filePath)}
+                                    disabled={!img.imageId}
+                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group transition-all
+                                        {img.imageId ? 'hover:ring-2 hover:ring-terracotta/50 focus-visible:ring-2 focus-visible:ring-terracotta/50' : 'cursor-default'}"
+                                    title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
                                     <ImageThumb
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                                         alt={imageName(img.filePath)}
-                                        class="w-full h-full object-cover"
+                                        class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
                                         draggable={false}
                                     />
+                                    {#if !img.imageId}
+                                        <div class="absolute top-1 left-1" title="Removed from catalogue">
+                                            <ImageOff class="w-3 h-3 text-white drop-shadow" />
+                                        </div>
+                                    {/if}
                                     <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
                                         <Pencil class="w-2 h-2" />
                                         {img.drawCount}
@@ -528,19 +536,26 @@
                             Most Skipped
                         </h2>
                         <div class="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                            {#each statsData.mostSkipped.slice(0, 6) as img (img.imageId)}
+                            {#each statsData.mostSkipped.slice(0, 6) as img (img.filePath)}
                                 <button
                                     type="button"
                                     onclick={() => openModal(img)}
-                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group hover:ring-2 hover:ring-terracotta/50 transition-all focus-visible:ring-2 focus-visible:ring-terracotta/50"
-                                    title={imageName(img.filePath)}
+                                    disabled={!img.imageId}
+                                    class="relative aspect-square overflow-hidden rounded-lg bg-canvas border border-muted group transition-all
+                                        {img.imageId ? 'hover:ring-2 hover:ring-terracotta/50 focus-visible:ring-2 focus-visible:ring-terracotta/50' : 'cursor-default'}"
+                                    title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
                                     <ImageThumb
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                                         alt={imageName(img.filePath)}
-                                        class="w-full h-full object-cover"
+                                        class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
                                         draggable={false}
                                     />
+                                    {#if !img.imageId}
+                                        <div class="absolute top-1 left-1" title="Removed from catalogue">
+                                            <ImageOff class="w-3 h-3 text-white drop-shadow" />
+                                        </div>
+                                    {/if}
                                     <div class="absolute bottom-1 right-1 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded px-1 py-0.5 text-white text-[10px] font-medium tabular-nums">
                                         <SkipForward class="w-2 h-2" />
                                         {img.skipCount}

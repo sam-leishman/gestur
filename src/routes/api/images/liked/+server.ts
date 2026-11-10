@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const result: Record<string, boolean> = Object.fromEntries(imageIds.map((id) => [id, false]));
     for (const row of rows) {
-        result[row.imageId] = row.liked;
+        if (row.imageId !== null) result[row.imageId] = row.liked;
     }
 
     return json(result);

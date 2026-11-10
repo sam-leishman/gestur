@@ -29,12 +29,18 @@ export const imagesRelations = relations(images, ({ many }) => ({
 // ===========================================================================
 // USER IMAGE STATS
 // ===========================================================================
+// `imageId` is nullable and set-null-on-delete (rather than cascading) so that
+// deleting a catalogued image doesn't erase its historical lifetime stats —
+// `filePath`/`title` are a snapshot taken at write time, used to keep
+// displaying the entry once its catalogue row is gone.
 export const userImageStats = sqliteTable('user_image_stats', {
 	id: text('id')
 		.primaryKey()
 		.$defaultFn(() => crypto.randomUUID()),
 	userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	imageId: text('image_id').notNull().references(() => images.id, { onDelete: 'cascade' }),
+	imageId: text('image_id').references(() => images.id, { onDelete: 'set null' }),
+	filePath: text('file_path').notNull(),
+	title: text('title').notNull(),
 	drawCount: integer('draw_count').notNull().default(0),
 	skipCount: integer('skip_count').notNull().default(0),
 	liked: integer('liked', { mode: 'boolean' }).notNull().default(false)
@@ -251,12 +257,18 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
 // ===========================================================================
 // SESSION IMAGES
 // ===========================================================================
+// Same reasoning as `userImageStats`: `imageId` is set-null (not cascaded) on
+// deletion, with `filePath`/`title` snapshotted at write time, so a session's
+// history stays intact — with an explicit "removed from catalogue" entry —
+// instead of silently shrinking when a drawn/skipped image is later deleted.
 export const sessionImages = sqliteTable('session_images', {
 	id: text('id')
 		.primaryKey()
 		.$defaultFn(() => crypto.randomUUID()),
 	sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
-	imageId: text('image_id').notNull().references(() => images.id, { onDelete: 'cascade' }),
+	imageId: text('image_id').references(() => images.id, { onDelete: 'set null' }),
+	filePath: text('file_path').notNull(),
+	title: text('title').notNull(),
 	result: text('result', { enum: ['drawn', 'skipped'] }).notNull(),
 	position: integer('position').notNull()
 });

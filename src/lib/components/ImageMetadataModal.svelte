@@ -2,7 +2,7 @@
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
     import ImageThumb from '$lib/components/ImageThumb.svelte';
-    import type { SessionImage } from '$lib/types';
+    import type { DisplayableSessionImage } from '$lib/types';
 
     let {
         open = $bindable(false),
@@ -10,7 +10,7 @@
         onLikeChange
     }: {
         open: boolean;
-        image: SessionImage | null;
+        image: DisplayableSessionImage | null;
         onLikeChange?: (imageId: string, liked: boolean) => void;
     } = $props();
 

@@ -72,7 +72,7 @@ function likedImageIds(userId: string): Set<string> {
 		.from(userImageStats)
 		.where(and(eq(userImageStats.userId, userId), eq(userImageStats.liked, true)))
 		.all();
-	return new Set(rows.map((r) => r.imageId));
+	return new Set(rows.map((r) => r.imageId).filter((id): id is string => id !== null));
 }
 
 /**

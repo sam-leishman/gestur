@@ -20,23 +20,37 @@ export const GET: RequestHandler = ({ params, locals }) => {
 	if (!session) return json({ error: 'Not found' }, { status: 404 });
 
 	function fetchImages(result: 'drawn' | 'skipped') {
+		// Left-joined to `images`/`userImageStats` rather than inner-joined: if
+		// the catalogue entry has since been deleted, `imageId` is null (the FK
+		// is set-null-on-delete, not cascading) and we fall back to the
+		// filePath/title snapshotted on this row when the session was recorded,
+		// instead of the entry — and the session's draw/skip count — silently
+		// disappearing.
 		const rows = db
 			.select({
-				id: images.id,
-				filePath: images.filePath,
+				id: sessionImages.imageId,
+				snapshotFilePath: sessionImages.filePath,
+				snapshotTitle: sessionImages.title,
+				liveFilePath: images.filePath,
+				liveTitle: images.title,
 				liked: userImageStats.liked
 			})
 			.from(sessionImages)
-			.innerJoin(images, eq(sessionImages.imageId, images.id))
+			.leftJoin(images, eq(sessionImages.imageId, images.id))
 			.leftJoin(
 				userImageStats,
-				and(eq(userImageStats.imageId, images.id), eq(userImageStats.userId, userId))
+				and(eq(userImageStats.imageId, sessionImages.imageId), eq(userImageStats.userId, userId))
 			)
 			.where(and(eq(sessionImages.sessionId, sessionId), eq(sessionImages.result, result)))
 			.orderBy(asc(sessionImages.position))
 			.all();
 
-		return rows.map((row) => ({ id: row.id, filePath: row.filePath, liked: row.liked ?? false }));
+		return rows.map((row) => ({
+			id: row.id,
+			filePath: row.liveFilePath ?? row.snapshotFilePath,
+			title: row.liveTitle ?? row.snapshotTitle,
+			liked: row.liked ?? false
+		}));
 	}
 
 	return json({

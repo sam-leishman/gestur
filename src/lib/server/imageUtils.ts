@@ -39,7 +39,7 @@ export function getMissingImages(userId?: string): MissingImage[] {
             .from(userImageStats)
             .where(and(inArray(userImageStats.imageId, ids), eq(userImageStats.userId, userId)))
             .all();
-        for (const row of statsRows) stats.set(row.imageId, row);
+        for (const row of statsRows) if (row.imageId !== null) stats.set(row.imageId, row);
     }
 
     return missingRows.map((row) => ({

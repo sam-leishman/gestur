@@ -36,7 +36,7 @@ export const GET: RequestHandler = ({ url, locals }) => {
 			.where(and(eq(userImageStats.userId, locals.user.id), eq(userImageStats.liked, true)))
 			.all();
 		for (const row of likedRows) {
-			const path = imageIdToPath.get(row.imageId);
+			const path = row.imageId !== null ? imageIdToPath.get(row.imageId) : undefined;
 			if (path) likedPaths.add(path);
 		}
 	}

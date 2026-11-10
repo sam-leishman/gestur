@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db';
-import { sessionImages, sessions, userImageStats } from '$lib/server/db/schema';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { images, sessionImages, sessions, userImageStats } from '$lib/server/db/schema';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 type StatField = 'drawCount' | 'skipCount';
 const SQL_COL: Record<StatField, ReturnType<typeof sql>> = {
@@ -8,12 +8,35 @@ const SQL_COL: Record<StatField, ReturnType<typeof sql>> = {
 	skipCount: sql`skip_count + 1`
 };
 
-function upsertStat(userId: string, imageId: string, field: StatField) {
+type ImageSnapshot = { filePath: string; title: string };
+
+/**
+ * Looks up the current filePath/title for a batch of image ids, for
+ * snapshotting onto history rows at write time. Falls back to a placeholder
+ * for an id that can't be resolved (e.g. deleted in another tab mid-session)
+ * so the entry is still recorded instead of silently dropped.
+ */
+function snapshotImages(imageIds: string[]): Map<string, ImageSnapshot> {
+	const map = new Map<string, ImageSnapshot>();
+	if (imageIds.length === 0) return map;
+	const rows = db
+		.select({ id: images.id, filePath: images.filePath, title: images.title })
+		.from(images)
+		.where(inArray(images.id, imageIds))
+		.all();
+	for (const row of rows) map.set(row.id, { filePath: row.filePath, title: row.title });
+	for (const id of imageIds) {
+		if (!map.has(id)) map.set(id, { filePath: id, title: 'Unknown image' });
+	}
+	return map;
+}
+
+function upsertStat(userId: string, imageId: string, snapshot: ImageSnapshot, field: StatField) {
 	db.insert(userImageStats)
-		.values({ userId, imageId, [field]: 1 })
+		.values({ userId, imageId, filePath: snapshot.filePath, title: snapshot.title, [field]: 1 })
 		.onConflictDoUpdate({
 			target: [userImageStats.userId, userImageStats.imageId],
-			set: { [field]: SQL_COL[field] }
+			set: { [field]: SQL_COL[field], filePath: snapshot.filePath, title: snapshot.title }
 		})
 		.run();
 }
@@ -53,8 +76,10 @@ export function recordSession(input: RecordSessionInput): string {
 	let sessionId = '';
 
 	db.transaction(() => {
-		for (const imageId of draws) upsertStat(userId, imageId, 'drawCount');
-		for (const imageId of skips) upsertStat(userId, imageId, 'skipCount');
+		const snapshots = snapshotImages([...new Set([...draws, ...skips])]);
+
+		for (const imageId of draws) upsertStat(userId, imageId, snapshots.get(imageId)!, 'drawCount');
+		for (const imageId of skips) upsertStat(userId, imageId, snapshots.get(imageId)!, 'skipCount');
 
 		const [session] = db
 			.insert(sessions)
@@ -79,6 +104,8 @@ export function recordSession(input: RecordSessionInput): string {
 				.values(draws.map((imageId, position) => ({
 					sessionId: session.id,
 					imageId,
+					filePath: snapshots.get(imageId)!.filePath,
+					title: snapshots.get(imageId)!.title,
 					result: 'drawn' as const,
 					position
 				})))
@@ -90,6 +117,8 @@ export function recordSession(input: RecordSessionInput): string {
 				.values(skips.map((imageId, position) => ({
 					sessionId: session.id,
 					imageId,
+					filePath: snapshots.get(imageId)!.filePath,
+					title: snapshots.get(imageId)!.title,
 					result: 'skipped' as const,
 					position
 				})))

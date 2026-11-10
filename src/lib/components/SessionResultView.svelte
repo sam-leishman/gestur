@@ -1,7 +1,7 @@
 <script lang="ts">
-    import { Heart } from 'lucide-svelte';
+    import { Heart, ImageOff } from 'lucide-svelte';
     import type { Snippet } from 'svelte';
-    import type { SessionImage } from '$lib/types';
+    import type { DisplayableSessionImage } from '$lib/types';
     import ImageThumb from '$lib/components/ImageThumb.svelte';
 
     let {
@@ -17,43 +17,52 @@
     }: {
         stoppedEarly: boolean;
         targetCount: number;
-        drawnImages: SessionImage[];
-        skippedImages: SessionImage[];
+        drawnImages: DisplayableSessionImage[];
+        skippedImages: DisplayableSessionImage[];
         likedIds: Set<string>;
         onToggleLike: (imageId: string) => void;
-        onSelectImage: (image: SessionImage) => void;
+        onSelectImage: (image: DisplayableSessionImage) => void;
         headerActions?: Snippet;
         banner?: Snippet;
     } = $props();
 </script>
 
-{#snippet thumbGrid(imgs: SessionImage[])}
+{#snippet thumbGrid(imgs: DisplayableSessionImage[])}
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {#each imgs as img, i (i)}
-            {@const isLiked = likedIds.has(img.id)}
+            {@const removed = img.id === null}
+            {@const isLiked = img.id !== null && likedIds.has(img.id)}
             <div class="group relative aspect-square overflow-hidden rounded-lg bg-white/5">
                 <button
                     type="button"
-                    onclick={() => onSelectImage(img)}
-                    class="w-full h-full hover:ring-2 hover:ring-white/30 transition-all focus-visible:ring-2 focus-visible:ring-white/30"
-                    title={img.filePath.split('/').pop()}
+                    onclick={() => { if (!removed) onSelectImage(img); }}
+                    disabled={removed}
+                    class="w-full h-full transition-all focus-visible:ring-2 focus-visible:ring-white/30 {removed ? 'cursor-default' : 'hover:ring-2 hover:ring-white/30'}"
+                    title={img.title ?? img.filePath.split('/').pop()}
                 >
                     <ImageThumb
                         src="/api/images/file?path={encodeURIComponent(img.filePath)}"
                         alt=""
-                        class="w-full h-full object-cover"
+                        class="w-full h-full object-cover {removed ? 'opacity-50' : ''}"
                         draggable={false}
                     />
                 </button>
-                <button
-                    type="button"
-                    onclick={() => onToggleLike(img.id)}
-                    class="absolute bottom-1.5 right-1.5 p-1 rounded-md bg-black/50 backdrop-blur-sm transition-opacity
-                        {isLiked ? 'opacity-100 text-terracotta' : 'text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
-                    aria-label={isLiked ? 'Unlike' : 'Like'}
-                >
-                    <Heart class="w-3.5 h-3.5 {isLiked ? 'fill-current' : ''}" />
-                </button>
+                {#if removed}
+                    <div class="absolute bottom-1.5 left-1.5 right-1.5 pointer-events-none px-1.5 py-1 rounded bg-black/70 backdrop-blur-sm flex items-center justify-center gap-1">
+                        <ImageOff class="w-3 h-3 text-white/70 shrink-0" />
+                        <span class="text-[10px] text-white/80 font-medium truncate">Removed from catalogue</span>
+                    </div>
+                {:else}
+                    <button
+                        type="button"
+                        onclick={() => onToggleLike(img.id!)}
+                        class="absolute bottom-1.5 right-1.5 p-1 rounded-md bg-black/50 backdrop-blur-sm transition-opacity
+                            {isLiked ? 'opacity-100 text-terracotta' : 'text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
+                        aria-label={isLiked ? 'Unlike' : 'Like'}
+                    >
+                        <Heart class="w-3.5 h-3.5 {isLiked ? 'fill-current' : ''}" />
+                    </button>
+                {/if}
             </div>
         {/each}
     </div>
