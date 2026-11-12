@@ -1,7 +1,8 @@
 <script lang="ts">
-    import { Plus, Pencil, Trash2, GripVertical, ChevronRight } from 'lucide-svelte';
+    import { Plus, Pencil, Trash2, GripVertical } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import MissingFilesSection from '$lib/components/MissingFilesSection.svelte';
+    import EntityListPanel from '$lib/components/EntityListPanel.svelte';
 
     type Subject = { id: string; name: string };
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
@@ -16,21 +17,11 @@
     };
 
     // ── State ──────────────────────────────────────────────────────────────────
-    let subjects = $state<Subject[]>([]);
     let selectedSubject = $state<Subject | null>(null);
     let fields = $state<SubjectField[]>([]);
 
-    let subjectsLoading = $state(true);
     let fieldsLoading = $state(false);
-    let subjectsError = $state<string | null>(null);
     let fieldsError = $state<string | null>(null);
-
-    // ── Subject modal ──────────────────────────────────────────────────────────
-    let subjectModalOpen = $state(false);
-    let subjectModalEdit = $state<Subject | null>(null);
-    let subjectName = $state('');
-    let subjectSaving = $state(false);
-    let subjectModalError = $state<string | null>(null);
 
     // ── Field modal ────────────────────────────────────────────────────────────
     let fieldModalOpen = $state(false);
@@ -43,7 +34,6 @@
     let fieldModalError = $state<string | null>(null);
 
     // ── Delete confirmation ────────────────────────────────────────────────────
-    let deletingSubjectId = $state<string | null>(null);
     let deletingFieldId = $state<string | null>(null);
 
     // ── Drag-and-drop (fields) ────────────────────────────────────────────────
@@ -53,25 +43,6 @@
     // ── Drag-and-drop (options) ───────────────────────────────────────────────
     let optionDragSource = $state<number | null>(null);
     let optionDragOver = $state<number | null>(null);
-
-    // ── Load subjects on mount ─────────────────────────────────────────────────
-    $effect(() => {
-        loadSubjects();
-    });
-
-    async function loadSubjects() {
-        subjectsLoading = true;
-        subjectsError = null;
-        try {
-            const res = await fetch('/api/subjects');
-            if (!res.ok) throw new Error();
-            subjects = await res.json();
-        } catch {
-            subjectsError = 'Failed to load subjects.';
-        } finally {
-            subjectsLoading = false;
-        }
-    }
 
     async function loadFields(subjectId: string) {
         fieldsLoading = true;
@@ -91,72 +62,6 @@
         selectedSubject = subject;
         deletingFieldId = null;
         loadFields(subject.id);
-    }
-
-    // ── Subject modal helpers ──────────────────────────────────────────────────
-    function openCreateSubject() {
-        subjectModalEdit = null;
-        subjectName = '';
-        subjectModalError = null;
-        subjectModalOpen = true;
-    }
-
-    function openEditSubject(subject: Subject, e: MouseEvent) {
-        e.stopPropagation();
-        subjectModalEdit = subject;
-        subjectName = subject.name;
-        subjectModalError = null;
-        subjectModalOpen = true;
-    }
-
-    async function saveSubject() {
-        subjectSaving = true;
-        subjectModalError = null;
-        try {
-            const url = subjectModalEdit ? `/api/subjects/${subjectModalEdit.id}` : '/api/subjects';
-            const res = await fetch(url, {
-                method: subjectModalEdit ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: subjectName })
-            });
-            if (!res.ok) {
-                const err = await res.json();
-                subjectModalError = err.error ?? 'Failed to save.';
-                return;
-            }
-            const result: Subject = await res.json();
-            if (subjectModalEdit) {
-                subjects = subjects
-                    .map((s) => (s.id === result.id ? result : s))
-                    .sort((a, b) => a.name.localeCompare(b.name));
-                if (selectedSubject?.id === result.id) selectedSubject = result;
-            } else {
-                subjects = [...subjects, result].sort((a, b) => a.name.localeCompare(b.name));
-            }
-            subjectModalOpen = false;
-        } finally {
-            subjectSaving = false;
-        }
-    }
-
-    function confirmDeleteSubject(id: string, e: MouseEvent) {
-        e.stopPropagation();
-        if (deletingSubjectId === id) {
-            doDeleteSubject(id);
-        } else {
-            deletingSubjectId = id;
-        }
-    }
-
-    async function doDeleteSubject(id: string) {
-        const res = await fetch(`/api/subjects/${id}`, { method: 'DELETE' });
-        if (!res.ok) return;
-        subjects = subjects.filter((s) => s.id !== id);
-        if (selectedSubject?.id === id) {
-            selectedSubject = null;
-            fields = [];
-        }
-        deletingSubjectId = null;
     }
 
     // ── Field modal helpers ────────────────────────────────────────────────────
@@ -328,34 +233,6 @@
     };
 </script>
 
-<!-- ── Subject modal ─────────────────────────────────────────────────────────── -->
-<Modal bind:open={subjectModalOpen} title={subjectModalEdit ? 'Edit Subject' : 'New Subject'}>
-    <form onsubmit={(e) => { e.preventDefault(); saveSubject(); }} class="flex flex-col gap-4">
-        <div class="flex flex-col gap-1">
-            <label for="subject-name" class="text-sm font-medium text-warm-gray">Name</label>
-            <input
-                id="subject-name"
-                type="text"
-                bind:value={subjectName}
-                placeholder="e.g. Person, Animal…"
-                class="rounded-lg border-muted w-full"
-                required
-            />
-        </div>
-        {#if subjectModalError}
-            <p class="text-sm text-red-600">{subjectModalError}</p>
-        {/if}
-        <div class="flex justify-end gap-2">
-            <button type="button" onclick={() => (subjectModalOpen = false)} class="btn btn-terracotta-tint text-ink">
-                Cancel
-            </button>
-            <button type="submit" disabled={subjectSaving || !subjectName.trim()} class="btn btn-primary">
-                {subjectSaving ? 'Saving…' : 'Save'}
-            </button>
-        </div>
-    </form>
-</Modal>
-
 <!-- ── Field modal ───────────────────────────────────────────────────────────── -->
 <Modal bind:open={fieldModalOpen} title={fieldModalEdit ? 'Edit Field' : 'New Field'}>
     <form onsubmit={(e) => { e.preventDefault(); saveField(); }} class="flex flex-col gap-4">
@@ -461,70 +338,13 @@
     <div class="flex gap-4 flex-1 min-h-[20rem]">
 
     <!-- Subjects panel -->
-    <div class="flex flex-col gap-3 w-64 shrink-0 bg-canvas border border-muted rounded-lg p-4 min-h-0">
-        <div class="flex items-center justify-between">
-            <h2 class="font-semibold text-ink">Subjects</h2>
-            <button
-                type="button"
-                onclick={openCreateSubject}
-                class="btn btn-primary p-1.5"
-                aria-label="New subject"
-            >
-                <Plus class="w-4 h-4" />
-            </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto min-h-0 flex flex-col gap-1">
-            {#if subjectsLoading}
-                {#each Array(4) as _, i (i)}
-                    <div class="h-10 bg-pressed rounded-lg animate-pulse" style="opacity: {1 - i * 0.15}"></div>
-                {/each}
-            {:else if subjectsError}
-                <p class="text-sm text-warm-gray text-center py-4">{subjectsError}</p>
-            {:else if subjects.length === 0}
-                <p class="text-sm text-warm-gray text-center py-4">No subjects yet</p>
-            {:else}
-                {#each subjects as subject (subject.id)}
-                    <div
-                        class="group flex items-center gap-1 rounded-lg px-2 py-2 cursor-pointer transition-colors
-                            {selectedSubject?.id === subject.id
-                                ? 'bg-terracotta-tint border border-terracotta/30'
-                                : 'hover:bg-pressed'}"
-                        onclick={() => { selectSubject(subject); deletingSubjectId = null; }}
-                        onkeydown={(e) => e.key === 'Enter' && selectSubject(subject)}
-                        role="button"
-                        tabindex="0"
-                        aria-pressed={selectedSubject?.id === subject.id}
-                    >
-                        <span class="flex-1 text-sm text-ink truncate">{subject.name}</span>
-                        <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                            <button
-                                type="button"
-                                onclick={(e) => openEditSubject(subject, e)}
-                                class="p-1 text-warm-gray hover:text-ink transition-colors rounded"
-                                aria-label="Edit subject"
-                            >
-                                <Pencil class="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                                type="button"
-                                onclick={(e) => confirmDeleteSubject(subject.id, e)}
-                                class="p-1 transition-colors rounded
-                                    {deletingSubjectId === subject.id
-                                        ? 'text-red-600 bg-red-50'
-                                        : 'text-warm-gray hover:text-red-600'}"
-                                aria-label="Delete subject"
-                                title={deletingSubjectId === subject.id ? 'Click again to confirm' : 'Delete'}
-                            >
-                                <Trash2 class="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                        <ChevronRight class="w-3.5 h-3.5 text-muted shrink-0 {selectedSubject?.id === subject.id ? 'opacity-100' : 'opacity-0'}" />
-                    </div>
-                {/each}
-            {/if}
-        </div>
-    </div>
+    <EntityListPanel
+        title="Subjects"
+        apiBase="/api/subjects"
+        singularLabel="Subject"
+        namePlaceholder="e.g. Person, Animal…"
+        onSelect={selectSubject}
+    />
 
     <!-- Fields panel -->
     <div class="flex flex-col gap-3 flex-1 bg-canvas border border-muted rounded-lg p-4 min-h-0">
@@ -623,6 +443,9 @@
             </div>
         {/if}
     </div>
+
+    <!-- Tags panel -->
+    <EntityListPanel title="Tags" apiBase="/api/tags" singularLabel="Tag" namePlaceholder="e.g. Portrait, Nature…" />
     </div>
 
     <MissingFilesSection />

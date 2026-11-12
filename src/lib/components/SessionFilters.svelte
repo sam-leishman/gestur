@@ -1,9 +1,10 @@
 <script lang="ts">
-    import { ChevronDown, ChevronRight, Plus } from 'lucide-svelte';
+    import { ChevronDown, ChevronRight, Plus, X } from 'lucide-svelte';
     import DirectorySelector from '$lib/components/DirectorySelector.svelte';
     import SubjectFilterGroup from '$lib/components/SubjectFilterGroup.svelte';
     import Modal from '$lib/components/Modal.svelte';
-    import type { Subject, SessionImageFilter } from '$lib/types';
+    import ItemPickerList from '$lib/components/ItemPickerList.svelte';
+    import type { Subject, Tag, SessionImageFilter } from '$lib/types';
 
     let {
         filter = $bindable(),
@@ -19,13 +20,24 @@
 
     let open = $state(false);
     let allSubjects = $state<Subject[]>([]);
+    let allTags = $state<Tag[]>([]);
     let addSubjectOpen = $state(false);
+    let addTagOpen = $state(false);
 
     $effect(() => {
         fetch('/api/subjects')
             .then((res) => (res.ok ? res.json() : Promise.reject()))
             .then((data: Subject[]) => {
                 allSubjects = data;
+            })
+            .catch(() => {});
+    });
+
+    $effect(() => {
+        fetch('/api/tags')
+            .then((res) => (res.ok ? res.json() : Promise.reject()))
+            .then((data: Tag[]) => {
+                allTags = data;
             })
             .catch(() => {});
     });
@@ -47,13 +59,30 @@
         filter = { ...filter, subjects: filter.subjects.filter((f) => f.subjectId !== subjectId) };
     }
 
+    const selectedTags = $derived(
+        filter.tagIds.map((id) => allTags.find((t) => t.id === id)).filter((t): t is Tag => !!t)
+    );
+    const availableTags = $derived(allTags.filter((t) => !filter.tagIds.includes(t.id)));
+
+    function addTagFilter(tagId: string) {
+        filter = { ...filter, tagIds: [...filter.tagIds, tagId] };
+        addTagOpen = false;
+    }
+
+    function removeTagFilter(tagId: string) {
+        filter = { ...filter, tagIds: filter.tagIds.filter((id) => id !== tagId) };
+    }
+
     const summary = $derived(
         [
             filter.directories.length === 0 ? 'All directories' : `${filter.directories.length} directories`,
             filter.likedOnly ? 'Liked only' : 'All images',
             filter.subjects.length === 0
                 ? 'All subjects'
-                : `${filter.subjects.length} subject${filter.subjects.length > 1 ? 's' : ''}`
+                : `${filter.subjects.length} subject${filter.subjects.length > 1 ? 's' : ''}`,
+            filter.tagIds.length === 0
+                ? 'All tags'
+                : `${filter.tagIds.length} tag${filter.tagIds.length > 1 ? 's' : ''}`
         ].join(' · ')
     );
 
@@ -137,6 +166,41 @@
                 {/if}
             </div>
 
+            <!-- Tags -->
+            <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-ink">Tags</span>
+                    <button
+                        type="button"
+                        onclick={() => (addTagOpen = true)}
+                        class="flex items-center gap-1 text-xs text-terracotta hover:text-terracotta/80 transition-colors font-medium"
+                    >
+                        <Plus class="w-3.5 h-3.5" />
+                        Add tag
+                    </button>
+                </div>
+
+                {#if selectedTags.length === 0}
+                    <p class="text-xs text-warm-gray">No tag filters — all tagged (and untagged) images included.</p>
+                {:else}
+                    <div class="flex flex-wrap gap-1.5">
+                        {#each selectedTags as tag (tag.id)}
+                            <span class="flex items-center gap-1 text-xs bg-terracotta-tint text-terracotta rounded-full pl-2.5 pr-1 py-1">
+                                {tag.name}
+                                <button
+                                    type="button"
+                                    onclick={() => removeTagFilter(tag.id)}
+                                    class="p-0.5 rounded-full hover:bg-terracotta/20 transition-colors"
+                                    aria-label="Remove {tag.name} filter"
+                                >
+                                    <X class="w-3 h-3" />
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+
             <!-- Match feedback -->
             <div class="flex flex-col gap-1 border-t border-muted pt-3">
                 <p class="text-sm text-ink">
@@ -159,21 +223,21 @@
 </div>
 
 <Modal bind:open={addSubjectOpen} title="Add subject filter" maxWidth="max-w-sm">
-    {#if availableSubjects.length === 0}
-        <p class="text-sm text-warm-gray py-4 text-center">
-            {allSubjects.length === 0 ? 'No subjects have been created yet.' : 'All subjects are already added.'}
-        </p>
-    {:else}
-        <div class="flex flex-col divide-y divide-muted -mx-2 max-h-72 overflow-y-auto">
-            {#each availableSubjects as subject (subject.id)}
-                <button
-                    type="button"
-                    onclick={() => addSubject(subject.id)}
-                    class="py-2 px-2 text-left text-sm text-ink hover:bg-pressed transition-colors"
-                >
-                    {subject.name}
-                </button>
-            {/each}
-        </div>
-    {/if}
+    <ItemPickerList
+        items={availableSubjects}
+        onSelect={addSubject}
+        emptyMessage={allSubjects.length === 0 ? 'No subjects have been created yet.' : 'All subjects are already added.'}
+        searchPlaceholder="Search subjects…"
+        variant="list"
+    />
+</Modal>
+
+<Modal bind:open={addTagOpen} title="Add tag filter" maxWidth="max-w-sm">
+    <ItemPickerList
+        items={availableTags}
+        onSelect={addTagFilter}
+        emptyMessage={allTags.length === 0 ? 'No tags have been created yet.' : 'All tags are already added.'}
+        searchPlaceholder="Search tags…"
+        variant="list"
+    />
 </Modal>

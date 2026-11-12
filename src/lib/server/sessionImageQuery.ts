@@ -1,5 +1,5 @@
 import { db } from '$lib/server/db';
-import { images, userImageStats, imageSubjects, imageSubjectFieldValues } from '$lib/server/db/schema';
+import { images, userImageStats, imageSubjects, imageSubjectFieldValues, imageTags } from '$lib/server/db/schema';
 import { imageExistsOnDisk } from '$lib/server/imageUtils';
 import { eq, and, inArray } from 'drizzle-orm';
 import {
@@ -40,7 +40,9 @@ export function normalizeSessionImageFilter(body: unknown): SessionImageFilter {
 				}))
 		: [];
 
-	return { directories, likedOnly: raw.likedOnly === true, subjects };
+	const tagIds = Array.isArray(raw.tagIds) ? raw.tagIds.filter((t): t is string => typeof t === 'string') : [];
+
+	return { directories, likedOnly: raw.likedOnly === true, subjects, tagIds };
 }
 
 function topLevelDirectory(filePath: string): string {
@@ -133,6 +135,19 @@ function matchingImageIdsForSubjects(subjectFilters: SessionSubjectFilter[]): Se
 }
 
 /**
+ * Resolves the image IDs matching any of the given tag IDs (OR semantics,
+ * consistent with how multiple subject groups are combined above).
+ */
+function matchingImageIdsForTags(tagIds: string[]): Set<string> {
+	const rows = db
+		.select({ imageId: imageTags.imageId })
+		.from(imageTags)
+		.where(inArray(imageTags.tagId, tagIds))
+		.all();
+	return new Set(rows.map((r) => r.imageId));
+}
+
+/**
  * Returns catalogued images matching the given filter for the given user.
  * Used by both the session-preview and session-start endpoints so match
  * semantics can never drift between the two.
@@ -159,6 +174,10 @@ export function getFilteredSessionImages(filter: SessionImageFilter, userId: str
 
 	if (filter.subjects.length > 0) {
 		candidateIds = intersect(candidateIds, matchingImageIdsForSubjects(filter.subjects));
+	}
+
+	if (filter.tagIds.length > 0) {
+		candidateIds = intersect(candidateIds, matchingImageIdsForTags(filter.tagIds));
 	}
 
 	if (candidateIds === null) return allImages;

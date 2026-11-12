@@ -1,6 +1,8 @@
 <script lang="ts">
     import Modal from '$lib/components/Modal.svelte';
-    import { Heart, Plus, Trash2, Pencil, SkipForward, X } from 'lucide-svelte';
+    import AddItemDropdown from '$lib/components/AddItemDropdown.svelte';
+    import { authClient } from '$lib/auth-client';
+    import { Heart, Trash2, Pencil, SkipForward, X } from 'lucide-svelte';
 
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
     type SubjectField = {
@@ -20,6 +22,7 @@
         label: string | null;
         fields: SubjectField[];
     };
+    type LinkedTag = { id: string; name: string };
     export type ImageDetailData = {
         id: string;
         title: string;
@@ -28,8 +31,10 @@
         drawCount: number;
         skipCount: number;
         subjects: LinkedSubject[];
+        tags: LinkedTag[];
     };
     type AvailableSubject = { id: string; name: string };
+    type AvailableTag = { id: string; name: string };
 
     let {
         filePath = null,
@@ -49,20 +54,36 @@
         onUncatalogue?: (imageId: string, filePath: string) => void;
     } = $props();
 
+    // Catalogue data (title, subjects, tags, uncataloguing) is admin-managed —
+    // regular users viewing this panel (e.g. from /stats or session history)
+    // only get the user-specific "Like" action and read-only metadata.
+    const session = authClient.useSession();
+    const isAdmin = $derived($session.data?.user.role === 'admin');
+
     let imageData = $state<ImageDetailData | null>(null);
     let loading = $state(false);
     let titleDirty = $state(false);
     let saveStatus = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
     let allSubjects = $state<AvailableSubject[]>([]);
+    let allTags = $state<AvailableTag[]>([]);
     let addSubjectOpen = $state(false);
+    let addTagOpen = $state(false);
     let removingSubjectId = $state<string | null>(null);
+    let removingTagId = $state<string | null>(null);
     let clearingStatField = $state<'drawCount' | 'skipCount' | null>(null);
     let uncatalogueOpen = $state(false);
+
+    // Subjects can be linked multiple times (e.g. several "Person" instances),
+    // so the picker always offers the full list. Tags are a flat set per
+    // image, so already-applied tags are excluded from the picker.
+    const availableTags = $derived(
+        allTags.filter((t) => !imageData?.tags.some((linked) => linked.id === t.id))
+    );
 
     const fieldTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const labelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    $effect(() => { hasOverlay = addSubjectOpen || uncatalogueOpen; });
+    $effect(() => { hasOverlay = addSubjectOpen || addTagOpen || uncatalogueOpen; });
 
     $effect(() => {
         const path = filePath;
@@ -71,7 +92,9 @@
         imageData = null;
         titleDirty = false;
         addSubjectOpen = false;
+        addTagOpen = false;
         removingSubjectId = null;
+        removingTagId = null;
         clearingStatField = null;
         uncatalogueOpen = false;
         saveStatus = 'idle';
@@ -101,9 +124,18 @@
     });
 
     $effect(() => {
+        if (!isAdmin) return;
         fetch('/api/subjects')
             .then((r) => r.json())
             .then((data: AvailableSubject[]) => { allSubjects = data; })
+            .catch(() => {});
+    });
+
+    $effect(() => {
+        if (!isAdmin) return;
+        fetch('/api/tags')
+            .then((r) => r.json())
+            .then((data: AvailableTag[]) => { allTags = data; })
             .catch(() => {});
     });
 
@@ -157,7 +189,6 @@
     }
 
     async function addSubject(subjectId: string) {
-        addSubjectOpen = false;
         const img = await ensureImage();
         if (!img) return;
         const res = await fetch(`/api/images/${img.id}/subjects`, {
@@ -176,6 +207,27 @@
         const res = await fetch(`/api/images/${imageData.id}/subjects/${imageSubjectId}`, { method: 'DELETE' });
         if (!res.ok) return;
         imageData = { ...imageData, subjects: imageData.subjects.filter((s) => s.imageSubjectId !== imageSubjectId) };
+    }
+
+    async function addTag(tagId: string) {
+        const img = await ensureImage();
+        if (!img) return;
+        const res = await fetch(`/api/images/${img.id}/tags`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tagId })
+        });
+        if (!res.ok) return;
+        imageData = await res.json();
+    }
+
+    async function removeTag(tagId: string) {
+        if (!imageData) return;
+        if (removingTagId !== tagId) { removingTagId = tagId; return; }
+        removingTagId = null;
+        const res = await fetch(`/api/images/${imageData.id}/tags/${tagId}`, { method: 'DELETE' });
+        if (!res.ok) return;
+        imageData = { ...imageData, tags: imageData.tags.filter((t) => t.id !== tagId) };
     }
 
     function onFieldChange(linkedSubject: LinkedSubject, field: SubjectField, value: string | null, immediate = false) {
@@ -293,14 +345,18 @@
                     {/if}
                 </div>
             </div>
-            <input
-                id="image-detail-title"
-                type="text"
-                bind:value={displayTitle}
-                oninput={() => { titleDirty = true; }}
-                placeholder="Image title…"
-                class="rounded-lg border-muted w-full"
-            />
+            {#if isAdmin}
+                <input
+                    id="image-detail-title"
+                    type="text"
+                    bind:value={displayTitle}
+                    oninput={() => { titleDirty = true; }}
+                    placeholder="Image title…"
+                    class="rounded-lg border-muted w-full"
+                />
+            {:else}
+                <p id="image-detail-title" class="text-sm text-ink py-1.5">{displayTitle}</p>
+            {/if}
         </div>
 
         <!-- Activity -->
@@ -346,45 +402,23 @@
         <div class="flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <h3 class="text-sm font-semibold text-ink">Subjects</h3>
-                <div class="relative">
-                    <button
-                        type="button"
-                        onclick={() => { addSubjectOpen = !addSubjectOpen; }}
-                        class="btn btn-primary flex items-center gap-1 text-sm py-1.5 px-3"
+                {#if isAdmin}
+                    <AddItemDropdown
+                        items={allSubjects}
+                        onSelect={addSubject}
+                        bind:open={addSubjectOpen}
+                        label="Add Subject"
+                        emptyMessage="No subjects defined"
+                        searchPlaceholder="Search subjects…"
                         disabled={loading}
-                    >
-                        <Plus class="w-3.5 h-3.5" />
-                        Add Subject
-                    </button>
-                    {#if addSubjectOpen}
-                        <div
-                            class="fixed inset-0 z-10"
-                            onclick={() => { addSubjectOpen = false; }}
-                            aria-hidden="true"
-                        ></div>
-                        <div class="absolute right-0 z-20 mt-1 w-52 bg-canvas border border-muted rounded-lg shadow-lg overflow-hidden">
-                            {#if allSubjects.length === 0}
-                                <p class="text-sm text-warm-gray px-3 py-2">No subjects defined</p>
-                            {:else}
-                                <div class="max-h-48 overflow-y-auto">
-                                    {#each allSubjects as subject (subject.id)}
-                                        <button
-                                            type="button"
-                                            onclick={() => addSubject(subject.id)}
-                                            class="w-full text-left px-3 py-2 text-sm text-ink hover:bg-pressed transition-colors"
-                                        >
-                                            {subject.name}
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                        </div>
-                    {/if}
-                </div>
+                    />
+                {/if}
             </div>
 
             {#if !imageData || imageData.subjects.length === 0}
-                <p class="text-sm text-warm-gray py-1">No subjects linked — add one above</p>
+                <p class="text-sm text-warm-gray py-1">
+                    {isAdmin ? 'No subjects linked — add one above' : 'No subjects linked'}
+                </p>
             {:else}
                 <div class="flex flex-col gap-3">
                     {#each imageData.subjects as linkedSubject (linkedSubject.imageSubjectId)}
@@ -395,30 +429,34 @@
                                 <span class="text-xs font-medium text-warm-gray shrink-0 bg-canvas border border-muted rounded px-1.5 py-0.5">
                                     {linkedSubject.subjectName}{instanceOrdinal ? ` #${instanceOrdinal}` : ''}
                                 </span>
-                                <input
-                                    type="text"
-                                    value={linkedSubject.label ?? ''}
-                                    oninput={(e) => onLabelChange(linkedSubject, e.currentTarget.value)}
-                                    placeholder="Add label…"
-                                    class="flex-1 min-w-0 text-sm font-medium text-ink bg-transparent border-0 p-0 focus:ring-0 placeholder:text-muted"
-                                />
-                                <button
-                                    type="button"
-                                    onclick={() => removeSubject(linkedSubject.imageSubjectId)}
-                                    class="p-1 rounded transition-colors shrink-0
-                                        {removingSubjectId === linkedSubject.imageSubjectId
-                                            ? 'text-red-600 bg-red-50'
-                                            : 'text-warm-gray hover:text-red-600'}"
-                                    title={removingSubjectId === linkedSubject.imageSubjectId ? 'Click again to confirm' : 'Remove subject'}
-                                    aria-label="Remove subject"
-                                >
-                                    <Trash2 class="w-3.5 h-3.5" />
-                                </button>
+                                {#if isAdmin}
+                                    <input
+                                        type="text"
+                                        value={linkedSubject.label ?? ''}
+                                        oninput={(e) => onLabelChange(linkedSubject, e.currentTarget.value)}
+                                        placeholder="Add label…"
+                                        class="flex-1 min-w-0 text-sm font-medium text-ink bg-transparent border-0 p-0 focus:ring-0 placeholder:text-muted"
+                                    />
+                                    <button
+                                        type="button"
+                                        onclick={() => removeSubject(linkedSubject.imageSubjectId)}
+                                        class="p-1 rounded transition-colors shrink-0
+                                            {removingSubjectId === linkedSubject.imageSubjectId
+                                                ? 'text-red-600 bg-red-50'
+                                                : 'text-warm-gray hover:text-red-600'}"
+                                        title={removingSubjectId === linkedSubject.imageSubjectId ? 'Click again to confirm' : 'Remove subject'}
+                                        aria-label="Remove subject"
+                                    >
+                                        <Trash2 class="w-3.5 h-3.5" />
+                                    </button>
+                                {:else if linkedSubject.label}
+                                    <span class="flex-1 min-w-0 text-sm font-medium text-ink truncate">{linkedSubject.label}</span>
+                                {/if}
                             </div>
 
                             {#if linkedSubject.fields.length === 0}
                                 <p class="text-xs text-warm-gray px-3 py-2">No fields defined for this subject</p>
-                            {:else}
+                            {:else if isAdmin}
                                 <div class="flex flex-col gap-3 p-3">
                                     {#each linkedSubject.fields as field (field.id)}
                                         <div class="flex flex-col gap-1">
@@ -475,6 +513,22 @@
                                         </div>
                                     {/each}
                                 </div>
+                            {:else}
+                                <!-- Read-only view for non-admins: plain text rows, not form fields -->
+                                <dl class="flex flex-col divide-y divide-muted">
+                                    {#each linkedSubject.fields as field (field.id)}
+                                        <div class="flex items-baseline justify-between gap-3 px-3 py-2">
+                                            <dt class="text-xs font-medium text-warm-gray shrink-0">{field.name}</dt>
+                                            <dd class="text-sm text-ink text-right truncate">
+                                                {#if field.type === 'boolean'}
+                                                    {field.value === 'true' ? 'Yes' : 'No'}
+                                                {:else}
+                                                    {field.value || '—'}
+                                                {/if}
+                                            </dd>
+                                        </div>
+                                    {/each}
+                                </dl>
                             {/if}
                         </div>
                     {/each}
@@ -482,8 +536,52 @@
             {/if}
         </div>
 
-        <!-- Uncatalogue (only shown when onUncatalogue callback is provided) -->
-        {#if imageData && onUncatalogue}
+        <!-- Tags -->
+        <div class="flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-ink">Tags</h3>
+                {#if isAdmin}
+                    <AddItemDropdown
+                        items={availableTags}
+                        onSelect={addTag}
+                        bind:open={addTagOpen}
+                        label="Add Tag"
+                        emptyMessage={allTags.length === 0 ? 'No tags defined' : 'All tags already applied'}
+                        searchPlaceholder="Search tags…"
+                        disabled={loading}
+                    />
+                {/if}
+            </div>
+
+            {#if !imageData || imageData.tags.length === 0}
+                <p class="text-sm text-warm-gray py-1">
+                    {isAdmin ? 'No tags applied — add one above' : 'No tags applied'}
+                </p>
+            {:else}
+                <div class="flex flex-wrap gap-1.5">
+                    {#each imageData.tags as tag (tag.id)}
+                        <span class="flex items-center gap-1 text-sm bg-pressed border border-muted rounded-full pl-3 pr-1.5 py-1">
+                            {tag.name}
+                            {#if isAdmin}
+                                <button
+                                    type="button"
+                                    onclick={() => removeTag(tag.id)}
+                                    class="p-0.5 rounded-full transition-colors shrink-0
+                                        {removingTagId === tag.id ? 'text-red-600 bg-red-50' : 'text-warm-gray hover:text-red-600'}"
+                                    title={removingTagId === tag.id ? 'Click again to confirm' : 'Remove tag'}
+                                    aria-label="Remove {tag.name} tag"
+                                >
+                                    <X class="w-3 h-3" />
+                                </button>
+                            {/if}
+                        </span>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+
+        <!-- Uncatalogue (admin-only; only shown when onUncatalogue callback is provided) -->
+        {#if isAdmin && imageData && onUncatalogue}
             <div class="border-t border-muted pt-3">
                 <button
                     type="button"
@@ -497,7 +595,7 @@
     {/if}
 </div>
 
-{#if imageData && onUncatalogue}
+{#if isAdmin && imageData && onUncatalogue}
     <Modal bind:open={uncatalogueOpen} title="Uncatalogue image?">
         <p class="text-sm text-warm-gray">
             This will remove <span class="font-medium text-ink">{displayTitle || imageData.filePath.split('/').pop()}</span> from the catalogue,

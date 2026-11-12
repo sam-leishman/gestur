@@ -5,6 +5,7 @@ export const statement = {
 	...defaultStatements,
 	catalogue: ['browse', 'manage'],
 	subject: ['create', 'update', 'delete'],
+	tag: ['create', 'update', 'delete'],
 	data: ['view']
 } as const;
 
@@ -14,6 +15,7 @@ export const admin = ac.newRole({
 	...adminAc.statements,
 	catalogue: ['browse', 'manage'],
 	subject: ['create', 'update', 'delete'],
+	tag: ['create', 'update', 'delete'],
 	data: ['view']
 });
 
@@ -48,18 +50,27 @@ const SUBJECT_ACTIONS: Record<string, 'create' | 'update' | 'delete'> = {
 	PATCH: 'update',
 	DELETE: 'delete'
 };
+const TAG_ACTIONS = SUBJECT_ACTIONS;
 
 // API routes that mutate global (non per-user) data or expose the filesystem.
 const API_PERMISSIONS: { pattern: RegExp; methods: string[]; permissions: (method: string) => Permissions }[] = [
 	{ pattern: /^\/api\/browse$/, methods: ALL, permissions: () => ({ catalogue: ['browse'] }) },
+	{ pattern: /^\/api\/images$/, methods: ['POST'], permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/missing$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/bulk-[^/]+$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/[^/]+$/, methods: ['PUT', 'DELETE'], permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/[^/]+\/relink$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
+	{ pattern: /^\/api\/images\/[^/]+\/subjects(\/.*)?$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
+	{ pattern: /^\/api\/images\/[^/]+\/tags(\/.*)?$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
 	{
 		pattern: /^\/api\/subjects(\/.*)?$/,
 		methods: Object.keys(SUBJECT_ACTIONS),
 		permissions: (method) => ({ subject: [SUBJECT_ACTIONS[method]] })
+	},
+	{
+		pattern: /^\/api\/tags(\/.*)?$/,
+		methods: Object.keys(TAG_ACTIONS),
+		permissions: (method) => ({ tag: [TAG_ACTIONS[method]] })
 	}
 ];
 

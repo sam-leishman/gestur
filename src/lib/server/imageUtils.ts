@@ -1,7 +1,16 @@
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { db } from '$lib/server/db';
-import { images, imageSubjects, subjects, subjectFields, imageSubjectFieldValues, userImageStats } from '$lib/server/db/schema';
+import {
+    images,
+    imageSubjects,
+    subjects,
+    subjectFields,
+    imageSubjectFieldValues,
+    userImageStats,
+    imageTags,
+    tags
+} from '$lib/server/db/schema';
 import { config } from '$lib/server/config';
 import { eq, asc, and, inArray } from 'drizzle-orm';
 import type { MissingImage } from '$lib/types';
@@ -110,5 +119,13 @@ export function buildImagePayload(imageId: string, userId?: string) {
         };
     });
 
-    return { ...image, liked, drawCount, skipCount, subjects: subjectData };
+    const tagData = db
+        .select({ id: tags.id, name: tags.name })
+        .from(imageTags)
+        .innerJoin(tags, eq(imageTags.tagId, tags.id))
+        .where(eq(imageTags.imageId, imageId))
+        .orderBy(asc(tags.name))
+        .all();
+
+    return { ...image, liked, drawCount, skipCount, subjects: subjectData, tags: tagData };
 }

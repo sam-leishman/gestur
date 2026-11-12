@@ -4,6 +4,7 @@
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
     import ImageThumb from '$lib/components/ImageThumb.svelte';
     import MissingFilesBanner from '$lib/components/MissingFilesBanner.svelte';
+    import ItemPickerList from '$lib/components/ItemPickerList.svelte';
     import { isImageFile } from '$lib/utils/images';
 
     type FilterType = 'all' | 'catalogued' | 'uncatalogued';
@@ -57,13 +58,21 @@
     let focusedIndex = $state(-1);
     let listContainer: HTMLDivElement | null = null;
 
-    // ── Subjects (shared: detail panel dropdown + bulk modal) ────────────────
+    // ── Subjects & tags (shared: detail panel dropdown + bulk modal) ─────────
     let allSubjects = $state<{ id: string; name: string }[]>([]);
+    let allTags = $state<{ id: string; name: string }[]>([]);
 
     $effect(() => {
         fetch('/api/subjects')
             .then((r) => r.json())
             .then((data: { id: string; name: string }[]) => { allSubjects = data; })
+            .catch(() => {});
+    });
+
+    $effect(() => {
+        fetch('/api/tags')
+            .then((r) => r.json())
+            .then((data: { id: string; name: string }[]) => { allTags = data; })
             .catch(() => {});
     });
 
@@ -77,6 +86,11 @@
     let bulkStatus = $state<'idle' | 'saving' | 'error'>('idle');
     let bulkErrorMessage = $state<string | null>(null);
     let bulkSuccessMessage = $state<string | null>(null);
+
+    // ── Bulk add tag modal ───────────────────────────────────────────────────
+    let bulkTagOpen = $state(false);
+    let bulkTagStatus = $state<'idle' | 'saving' | 'error'>('idle');
+    let bulkTagErrorMessage = $state<string | null>(null);
 
     // ── Debounce: search ───────────────────────────────────────────────────────
     $effect(() => {
@@ -226,8 +240,10 @@
         anchorIndex = -1;
         bulkUncatalogueOpen = false;
         bulkSubjectOpen = false;
+        bulkTagOpen = false;
         bulkSuccessMessage = null;
         resetBulkModal();
+        resetBulkTagModal();
         clearSelection();
     }
 
@@ -337,7 +353,7 @@
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
         if (selectMode || loading || items.length === 0) return;
-        if (panelHasOverlay || bulkUncatalogueOpen || bulkSubjectOpen) return;
+        if (panelHasOverlay || bulkUncatalogueOpen || bulkSubjectOpen || bulkTagOpen) return;
 
         switch (e.key) {
             case 'ArrowDown':
@@ -456,6 +472,42 @@
         } catch {
             bulkErrorMessage = 'An unexpected error occurred';
             bulkStatus = 'error';
+        }
+    }
+
+    // ── Bulk add tag ─────────────────────────────────────────────────────────
+    function resetBulkTagModal() {
+        bulkTagStatus = 'idle';
+        bulkTagErrorMessage = null;
+    }
+
+    async function bulkAddTag(tagId: string) {
+        if (selectedPaths.size === 0) return;
+        bulkTagStatus = 'saving';
+        bulkTagErrorMessage = null;
+        try {
+            const res = await fetch('/api/images/bulk-tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePaths: Array.from(selectedPaths), tagId })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                bulkTagErrorMessage = data.error ?? 'Failed to add tag';
+                bulkTagStatus = 'error';
+                return;
+            }
+            const count = selectedPaths.size;
+            for (const filePath of selectedPaths) {
+                setCatalogued(filePath, true);
+            }
+            bulkTagOpen = false;
+            resetBulkTagModal();
+            bulkSuccessMessage = `Tag added to ${count} ${count === 1 ? 'image' : 'images'}`;
+            setTimeout(() => { bulkSuccessMessage = null; }, 3000);
+        } catch {
+            bulkTagErrorMessage = 'An unexpected error occurred';
+            bulkTagStatus = 'error';
         }
     }
 </script>
@@ -802,14 +854,24 @@
                         {#if bulkSuccessMessage}
                             <p class="text-sm text-terracotta">{bulkSuccessMessage}</p>
                         {/if}
-                        <button
-                            type="button"
-                            onclick={() => { resetBulkModal(); bulkSubjectOpen = true; }}
-                            class="btn btn-primary flex items-center gap-2 self-start"
-                        >
-                            <Plus class="w-4 h-4" />
-                            Add Subject
-                        </button>
+                        <div class="flex gap-2 self-start">
+                            <button
+                                type="button"
+                                onclick={() => { resetBulkModal(); bulkSubjectOpen = true; }}
+                                class="btn btn-primary flex items-center gap-2"
+                            >
+                                <Plus class="w-4 h-4" />
+                                Add Subject
+                            </button>
+                            <button
+                                type="button"
+                                onclick={() => { resetBulkTagModal(); bulkTagOpen = true; }}
+                                class="btn btn-primary flex items-center gap-2"
+                            >
+                                <Plus class="w-4 h-4" />
+                                Add Tag
+                            </button>
+                        </div>
                         {#if selectedCataloguedCount > 0}
                             <button
                                 type="button"
@@ -908,7 +970,15 @@
             class="btn btn-primary flex items-center gap-2"
         >
             <Plus class="w-4 h-4" />
-            Add Subject
+            Subject
+        </button>
+        <button
+            type="button"
+            onclick={() => { resetBulkTagModal(); bulkTagOpen = true; }}
+            class="btn btn-primary flex items-center gap-2"
+        >
+            <Plus class="w-4 h-4" />
+            Tag
         </button>
     </div>
 {/if}
@@ -935,21 +1005,13 @@
     {#if !bulkSubjectId}
         <div class="flex flex-col gap-3">
             <p class="text-sm text-warm-gray">Choose a subject to add to all selected images:</p>
-            {#if allSubjects.length === 0}
-                <p class="text-sm text-warm-gray">No subjects defined yet.</p>
-            {:else}
-                <div class="max-h-56 overflow-y-auto flex flex-col border border-muted rounded-lg divide-y divide-muted">
-                    {#each allSubjects as subject (subject.id)}
-                        <button
-                            type="button"
-                            onclick={() => { bulkSubjectId = subject.id; }}
-                            class="text-left px-3 py-2.5 text-sm text-ink hover:bg-pressed transition-colors first:rounded-t-lg last:rounded-b-lg"
-                        >
-                            {subject.name}
-                        </button>
-                    {/each}
-                </div>
-            {/if}
+            <ItemPickerList
+                items={allSubjects}
+                onSelect={(id) => { bulkSubjectId = id; }}
+                emptyMessage="No subjects defined yet."
+                searchPlaceholder="Search subjects…"
+                variant="list"
+            />
         </div>
         <div class="flex justify-end mt-4">
             <button type="button" onclick={() => { bulkSubjectOpen = false; }} class="btn">Cancel</button>
@@ -1055,4 +1117,32 @@
             </button>
         </div>
     {/if}
+</Modal>
+
+<Modal
+    bind:open={bulkTagOpen}
+    title="Add tag to {selectedPaths.size} {selectedPaths.size === 1 ? 'image' : 'images'}"
+    onclose={resetBulkTagModal}
+>
+    <div class="flex flex-col gap-3">
+        <p class="text-sm text-warm-gray">Choose a tag to add to all selected images:</p>
+        <div class="{bulkTagStatus === 'saving' ? 'opacity-60 pointer-events-none' : ''}">
+            <ItemPickerList
+                items={allTags}
+                onSelect={bulkAddTag}
+                emptyMessage="No tags defined yet."
+                searchPlaceholder="Search tags…"
+                variant="list"
+            />
+        </div>
+        {#if bulkTagStatus === 'saving'}
+            <p class="text-sm text-warm-gray">Adding…</p>
+        {/if}
+        {#if bulkTagErrorMessage}
+            <p class="text-sm text-red-600">{bulkTagErrorMessage}</p>
+        {/if}
+    </div>
+    <div class="flex justify-end mt-4">
+        <button type="button" onclick={() => { bulkTagOpen = false; }} class="btn">Cancel</button>
+    </div>
 </Modal>

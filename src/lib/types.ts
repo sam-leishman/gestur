@@ -34,19 +34,27 @@ export type SessionImageFilter = {
 	directories: string[];
 	likedOnly: boolean;
 	subjects: SessionSubjectFilter[];
+	tagIds: string[];
 };
 
 export function createEmptySessionImageFilter(): SessionImageFilter {
-	return { directories: [], likedOnly: false, subjects: [] };
+	return { directories: [], likedOnly: false, subjects: [], tagIds: [] };
 }
 
 export function isSessionImageFilterEmpty(filter: SessionImageFilter): boolean {
-	return filter.directories.length === 0 && !filter.likedOnly && filter.subjects.length === 0;
+	return (
+		filter.directories.length === 0 &&
+		!filter.likedOnly &&
+		filter.subjects.length === 0 &&
+		filter.tagIds.length === 0
+	);
 }
 
 export type SessionDirectoryOption = { key: string; label: string; count: number };
 
 export type Subject = { id: string; name: string };
+
+export type Tag = { id: string; name: string };
 
 export type SubjectFieldType = 'text' | 'number' | 'boolean' | 'select';
 
