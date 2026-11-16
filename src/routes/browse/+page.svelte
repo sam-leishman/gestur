@@ -811,7 +811,7 @@
         <!-- File browser panel -->
         <div class="
             bg-canvas rounded-lg p-4 flex flex-col gap-3 min-h-0
-            {selectedFilePath && !selectMode ? 'hidden lg:flex lg:flex-1' : selectMode ? 'flex flex-1 lg:flex-none lg:w-80 lg:shrink-0' : 'flex flex-1'}
+            {selectedFilePath && !selectMode ? 'hidden lg:flex lg:flex-1' : selectMode ? 'flex flex-1 lg:flex-1' : 'flex flex-1'}
         ">
             <!-- Breadcrumb + select toggle -->
             <div class="flex items-center gap-2 min-h-6">
