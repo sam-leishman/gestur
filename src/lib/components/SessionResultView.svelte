@@ -2,7 +2,7 @@
     import { Heart, ImageOff } from 'lucide-svelte';
     import type { Snippet } from 'svelte';
     import type { DisplayableSessionImage } from '$lib/types';
-    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import LoadedImage from '$lib/components/LoadedImage.svelte';
 
     let {
         stoppedEarly,
@@ -40,7 +40,7 @@
                     class="w-full h-full transition-all focus-visible:ring-2 focus-visible:ring-white/30 {removed ? 'cursor-default' : 'hover:ring-2 hover:ring-white/30'}"
                     title={img.title ?? img.filePath.split('/').pop()}
                 >
-                    <ImageThumb
+                    <LoadedImage
                         src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                         alt=""
                         class="w-full h-full object-cover {removed ? 'opacity-50' : ''}"

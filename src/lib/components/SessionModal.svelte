@@ -4,7 +4,7 @@
     import type { SessionImage, DisplayableSessionImage } from '$lib/types';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionResultView from '$lib/components/SessionResultView.svelte';
-    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import LoadedImage from '$lib/components/LoadedImage.svelte';
     import { localDateString } from '$lib/utils/date';
 
     let {
@@ -377,7 +377,7 @@
             <!-- Image display -->
             <div class="relative flex-1 flex items-center justify-center min-h-0 p-4">
                 {#if currentImage}
-                    <ImageThumb
+                    <LoadedImage
                         src="/api/images/file?path={encodeURIComponent(currentImage.filePath)}"
                         alt=""
                         class="max-w-full max-h-full object-contain select-none"

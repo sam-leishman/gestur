@@ -1,7 +1,7 @@
 <script lang="ts">
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
-    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import LoadedImage from '$lib/components/LoadedImage.svelte';
     import type { DisplayableSessionImage } from '$lib/types';
 
     let {
@@ -23,7 +23,7 @@
         <!-- Image preview -->
         <div class="md:w-72 md:shrink-0 flex items-center justify-center bg-pressed rounded-lg overflow-hidden h-52 md:h-80">
             {#if image}
-                <ImageThumb
+                <LoadedImage
                     src="/api/images/file?path={encodeURIComponent(image.filePath)}&size=preview"
                     alt={fileName}
                     class="max-w-full max-h-full object-contain"

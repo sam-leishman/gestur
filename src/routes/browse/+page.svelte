@@ -2,7 +2,7 @@
     import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
-    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import LoadedImage from '$lib/components/LoadedImage.svelte';
     import MissingFilesBanner from '$lib/components/MissingFilesBanner.svelte';
     import ItemPickerList from '$lib/components/ItemPickerList.svelte';
     import { isImageFile } from '$lib/utils/images';
@@ -608,7 +608,7 @@
             class="block w-full h-full focus:outline-none"
         >
             {#if isImageFile(item.name)}
-                <ImageThumb
+                <LoadedImage
                     src="/api/images/file?path={encodeURIComponent(relPath)}&size=thumb"
                     alt={item.name}
                     class="w-full h-full object-cover"
@@ -915,7 +915,7 @@
                 <!-- Image preview (fixed, never squishes) -->
                 <div class="bg-canvas rounded-lg border border-muted overflow-hidden flex items-center justify-center shrink-0 h-72">
                     {#if isImageFile(selectedFileName ?? '')}
-                        <ImageThumb
+                        <LoadedImage
                             src="/api/images/file?path={encodeURIComponent(selectedFilePath)}&size=preview"
                             alt={selectedFileName ?? ''}
                             class="max-w-full max-h-full object-contain"

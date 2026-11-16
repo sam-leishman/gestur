@@ -3,7 +3,7 @@
     import { ChartNoAxesColumn, ChevronLeft, ChevronRight, Clock, Eye, Flame, Heart, History, ImageOff, Pencil, SkipForward, Target, Trophy, TriangleAlert } from 'lucide-svelte';
     import ImageMetadataModal from '$lib/components/ImageMetadataModal.svelte';
     import SessionHistoryDialog from '$lib/components/SessionHistoryDialog.svelte';
-    import ImageThumb from '$lib/components/ImageThumb.svelte';
+    import LoadedImage from '$lib/components/LoadedImage.svelte';
     import type { DisplayableSessionImage, SessionStatus, SessionSummary } from '$lib/types';
     import { localDateString } from '$lib/utils/date';
 
@@ -508,7 +508,7 @@
                                         {img.imageId ? 'hover:ring-2 hover:ring-terracotta/50 focus-visible:ring-2 focus-visible:ring-terracotta/50' : 'cursor-default'}"
                                     title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
-                                    <ImageThumb
+                                    <LoadedImage
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
@@ -545,7 +545,7 @@
                                         {img.imageId ? 'hover:ring-2 hover:ring-terracotta/50 focus-visible:ring-2 focus-visible:ring-terracotta/50' : 'cursor-default'}"
                                     title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
-                                    <ImageThumb
+                                    <LoadedImage
                                         src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
