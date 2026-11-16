@@ -57,6 +57,7 @@ const API_PERMISSIONS: { pattern: RegExp; methods: string[]; permissions: (metho
 	{ pattern: /^\/api\/browse$/, methods: ALL, permissions: () => ({ catalogue: ['browse'] }) },
 	{ pattern: /^\/api\/images$/, methods: ['POST'], permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/missing$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
+	{ pattern: /^\/api\/thumbnails\/cleanup$/, methods: ['POST'], permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/bulk-[^/]+$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/[^/]+$/, methods: ['PUT', 'DELETE'], permissions: () => ({ catalogue: ['manage'] }) },
 	{ pattern: /^\/api\/images\/[^/]+\/relink$/, methods: ALL, permissions: () => ({ catalogue: ['manage'] }) },

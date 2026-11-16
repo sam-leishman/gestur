@@ -14,6 +14,8 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	var __thumbnailCleanupScheduled: boolean | undefined;
 }
 
 export {};

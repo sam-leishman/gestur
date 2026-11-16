@@ -609,7 +609,7 @@
         >
             {#if isImageFile(item.name)}
                 <ImageThumb
-                    src="/api/images/file?path={encodeURIComponent(relPath)}"
+                    src="/api/images/file?path={encodeURIComponent(relPath)}&size=thumb"
                     alt={item.name}
                     class="w-full h-full object-cover"
                     draggable={false}
@@ -916,7 +916,7 @@
                 <div class="bg-canvas rounded-lg border border-muted overflow-hidden flex items-center justify-center shrink-0 h-72">
                     {#if isImageFile(selectedFileName ?? '')}
                         <ImageThumb
-                            src="/api/images/file?path={encodeURIComponent(selectedFilePath)}"
+                            src="/api/images/file?path={encodeURIComponent(selectedFilePath)}&size=preview"
                             alt={selectedFileName ?? ''}
                             class="max-w-full max-h-full object-contain"
                         />

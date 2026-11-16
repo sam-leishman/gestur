@@ -41,7 +41,7 @@
                     title={img.title ?? img.filePath.split('/').pop()}
                 >
                     <ImageThumb
-                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                        src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                         alt=""
                         class="w-full h-full object-cover {removed ? 'opacity-50' : ''}"
                         draggable={false}

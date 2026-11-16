@@ -3,6 +3,7 @@ import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { hasUsers } from '$lib/server/setup';
+import { startThumbnailCleanupSchedule } from '$lib/server/thumbnailCleanup';
 import {
 	hasPermission,
 	LOGIN_ROUTE,
@@ -12,6 +13,13 @@ import {
 	SETUP_API_ROUTE,
 	SETUP_ROUTE
 } from '$lib/permissions';
+
+// Module scope runs once per server process (not per-request). Guard against dev-mode module
+// re-evaluation (HMR) scheduling the interval more than once per process.
+if (!building && !globalThis.__thumbnailCleanupScheduled) {
+	globalThis.__thumbnailCleanupScheduled = true;
+	startThumbnailCleanupSchedule();
+}
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;

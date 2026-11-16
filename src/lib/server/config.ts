@@ -10,13 +10,13 @@ import { env } from '$env/dynamic/private';
 // =================================================================================================================================
 
 const isProduction = env.NODE_ENV === 'production';
+const dataDir = env.DATA_DIR || (isProduction ? '/data' : resolve(process.cwd(), 'DEV_MOUNTS/data'));
 
 function getOrCreateSecret(): string {
     if (env.BETTER_AUTH_SECRET) {
         return env.BETTER_AUTH_SECRET;
     }
 
-    const dataDir = env.DATA_DIR || (isProduction ? '/data' : resolve(process.cwd(), 'DEV_MOUNTS/data'));
     const secretPath = resolve(dataDir, '.auth-secret');
     
     if (!existsSync(dataDir)) {
@@ -39,7 +39,10 @@ export const config = {
     },
     paths: {
         images: env.IMAGE_DIR || (isProduction ? '/images' : resolve(process.cwd(), 'DEV_MOUNTS/images')),
-        data: env.DATA_DIR || (isProduction ? '/data' : resolve(process.cwd(), 'DEV_MOUNTS/data')),
+        data: dataDir,
+        // Generated thumbnail cache. Lives under DATA_DIR (writable) rather than alongside the
+        // images themselves, since the images mount is read-only.
+        thumbnails: resolve(dataDir, 'thumbnails'),
     },
     server: {
         port: parseInt(env.PORT || (isProduction ? '3000' : '5173')),

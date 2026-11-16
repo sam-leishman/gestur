@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { createReadStream, existsSync, statSync } from 'fs';
 import { join, resolve, relative, isAbsolute, extname } from 'path';
 import { config } from '$lib/server/config';
+import { ensureThumbnail, type ThumbSize } from '$lib/server/thumbnails';
 import type { RequestHandler } from '@sveltejs/kit';
 import { Readable } from 'stream';
 
@@ -19,9 +20,27 @@ const MIME_TYPES: Record<string, string> = {
     '.heif': 'image/heif'
 };
 
-export const GET: RequestHandler = ({ url }) => {
+const THUMB_SIZES = new Set<ThumbSize>(['thumb', 'preview']);
+
+function streamFile(path: string, contentType: string, size: number, cacheControl: string): Response {
+    const stream = createReadStream(path);
+    const webStream = Readable.toWeb(stream) as ReadableStream;
+
+    return new Response(webStream, {
+        headers: {
+            'Content-Type': contentType,
+            'Content-Length': String(size),
+            'Cache-Control': cacheControl
+        }
+    });
+}
+
+export const GET: RequestHandler = async ({ url }) => {
     const pathParam = url.searchParams.get('path') || '';
     if (!pathParam) throw error(400, 'Missing path');
+
+    const sizeParam = url.searchParams.get('size');
+    const thumbSize = THUMB_SIZES.has(sizeParam as ThumbSize) ? (sizeParam as ThumbSize) : null;
 
     const imagesRoot = resolve(config.paths.images);
     const targetPath = resolve(join(imagesRoot, pathParam));
@@ -34,17 +53,19 @@ export const GET: RequestHandler = ({ url }) => {
     const stat = statSync(targetPath);
     if (!stat.isFile()) throw error(400, 'Not a file');
 
+    if (thumbSize) {
+        const thumbPath = await ensureThumbnail(targetPath, pathParam, thumbSize);
+        if (thumbPath) {
+            const thumbStat = statSync(thumbPath);
+            // Cache filenames embed the source file's mtime/size, so a given URL+size always
+            // maps to the same immutable bytes until the source image itself changes.
+            return streamFile(thumbPath, 'image/webp', thumbStat.size, 'public, max-age=31536000, immutable');
+        }
+        // Unsupported format (e.g. HEIC/SVG) or generation failure — fall through to original.
+    }
+
     const ext = extname(targetPath).toLowerCase();
     const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
 
-    const stream = createReadStream(targetPath);
-    const webStream = Readable.toWeb(stream) as ReadableStream;
-
-    return new Response(webStream, {
-        headers: {
-            'Content-Type': contentType,
-            'Content-Length': String(stat.size),
-            'Cache-Control': 'private, max-age=3600'
-        }
-    });
+    return streamFile(targetPath, contentType, stat.size, 'private, max-age=3600');
 };

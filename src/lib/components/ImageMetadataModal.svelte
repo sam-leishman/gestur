@@ -24,7 +24,7 @@
         <div class="md:w-72 md:shrink-0 flex items-center justify-center bg-pressed rounded-lg overflow-hidden h-52 md:h-80">
             {#if image}
                 <ImageThumb
-                    src="/api/images/file?path={encodeURIComponent(image.filePath)}"
+                    src="/api/images/file?path={encodeURIComponent(image.filePath)}&size=preview"
                     alt={fileName}
                     class="max-w-full max-h-full object-contain"
                 />

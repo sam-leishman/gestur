@@ -509,7 +509,7 @@
                                     title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
                                     <ImageThumb
-                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
                                         draggable={false}
@@ -546,7 +546,7 @@
                                     title={img.imageId ? imageName(img.filePath) : `${imageName(img.filePath)} (removed from catalogue)`}
                                 >
                                     <ImageThumb
-                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}"
+                                        src="/api/images/file?path={encodeURIComponent(img.filePath)}&size=thumb"
                                         alt={imageName(img.filePath)}
                                         class="w-full h-full object-cover {img.imageId ? '' : 'opacity-50'}"
                                         draggable={false}

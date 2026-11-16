@@ -2,6 +2,7 @@
     import { Plus, Pencil, Trash2, GripVertical } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import MissingFilesSection from '$lib/components/MissingFilesSection.svelte';
+    import ThumbnailCacheSection from '$lib/components/ThumbnailCacheSection.svelte';
     import EntityListPanel from '$lib/components/EntityListPanel.svelte';
 
     type Subject = { id: string; name: string };
@@ -449,4 +450,5 @@
     </div>
 
     <MissingFilesSection />
+    <ThumbnailCacheSection />
 </div>
