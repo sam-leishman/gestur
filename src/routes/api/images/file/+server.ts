@@ -21,21 +21,57 @@ const MIME_TYPES: Record<string, string> = {
 
 const THUMB_SIZES = new Set<ThumbSize>(['thumb', 'preview']);
 
+// Both Node's `Readable.toWeb()` (nodejs/node#54205) and Undici's own Node-stream-to-body
+// conversion (used internally when a Node stream is passed directly to `Response`) have the same
+// class of bug: if the consumer cancels the stream (e.g. a browser aborting an <img> request on
+// navigation) while the underlying file read is still in flight, a late event can try to close/
+// enqueue into an already-closed controller, throwing an *uncatchable* exception that crashes the
+// whole process. Neither library's adapter can be trusted here, so this builds the ReadableStream
+// by hand: every controller call is wrapped in try/catch (a no-op if the stream was already
+// cancelled/closed), and `cancelled` is checked before acting on any further source events.
 function streamFile(path: string, contentType: string, size: number, cacheControl: string): Response {
-    const stream = createReadStream(path);
-    // Surface read failures (e.g. the file is removed mid-stream) as a stream error instead of
-    // letting Node emit an unhandled 'error' event, which would crash the process.
-    stream.on('error', (err) => {
-        console.warn(`[Images] Error streaming ${path}:`, err);
+    const nodeStream = createReadStream(path);
+    let cancelled = false;
+
+    const webStream = new ReadableStream({
+        start(controller) {
+            nodeStream.on('data', (chunk) => {
+                if (cancelled) return;
+                // createReadStream() without an explicit encoding always emits Buffer chunks;
+                // the string case only exists in the shared ReadStream type when an encoding is set.
+                const buf = chunk as Buffer;
+                try {
+                    controller.enqueue(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+                } catch {
+                    // Controller already closed/errored (e.g. a cancel() landed between this
+                    // event being queued and handled) — nothing to do, the stream is done either way.
+                }
+            });
+            nodeStream.on('end', () => {
+                if (cancelled) return;
+                try {
+                    controller.close();
+                } catch {
+                    // Already closed by a concurrent cancel() — safe to ignore.
+                }
+            });
+            nodeStream.on('error', (err) => {
+                console.warn(`[Images] Error streaming ${path}:`, err);
+                if (cancelled) return;
+                try {
+                    controller.error(err);
+                } catch {
+                    // Already closed/errored — safe to ignore.
+                }
+            });
+        },
+        cancel() {
+            cancelled = true;
+            nodeStream.destroy();
+        }
     });
 
-    // Pass the Node stream directly rather than converting it with Readable.toWeb(): that adapter
-    // has a long-standing Node bug (nodejs/node#54205) where a client cancelling the response
-    // mid-stream (e.g. a browser aborting an <img> request on navigation) causes a double
-    // controller.close() that throws an *uncatchable* exception, crashing the whole process.
-    // Undici (the Response implementation) special-cases Node streams passed as the body, so this
-    // sidesteps the bug entirely.
-    return new Response(stream as unknown as BodyInit, {
+    return new Response(webStream, {
         headers: {
             'Content-Type': contentType,
             'Content-Length': String(size),
