@@ -29,6 +29,30 @@ export function isResizable(filePath: string): boolean {
 // requesting the same not-yet-cached thumbnail at once).
 const inFlight = new Map<string, Promise<string>>();
 
+// Caps total concurrent sharp() jobs process-wide (independent of the per-cache-key dedupe above,
+// which only prevents duplicate work for the *same* file). Without this, opening a folder full of
+// uncached images fires one resize job per image all at once, which can spike CPU/memory enough to
+// make the whole app unresponsive on resource-constrained hosts (e.g. a NAS). Extra requests queue
+// up and run as slots free, rather than all running at once.
+const MAX_CONCURRENT_GENERATIONS = 2;
+let activeGenerations = 0;
+const waitQueue: Array<() => void> = [];
+
+async function acquireGenerationSlot(): Promise<void> {
+    if (activeGenerations < MAX_CONCURRENT_GENERATIONS) {
+        activeGenerations++;
+        return;
+    }
+    await new Promise<void>((resolve) => waitQueue.push(resolve));
+    activeGenerations++;
+}
+
+function releaseGenerationSlot(): void {
+    activeGenerations--;
+    const next = waitQueue.shift();
+    if (next) next();
+}
+
 function cachePathFor(relPath: string, size: ThumbSize, mtimeMs: number, fileSize: number): string {
     const hash = createHash('sha1').update(relPath).digest('hex');
     const dir = join(config.paths.thumbnails, size);
@@ -36,20 +60,25 @@ function cachePathFor(relPath: string, size: ThumbSize, mtimeMs: number, fileSiz
 }
 
 async function generateThumbnail(absPath: string, cachePath: string, size: ThumbSize): Promise<void> {
-    const dimension = SIZE_DIMENSIONS[size];
-    const dir = join(config.paths.thumbnails, size);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-    const tmpPath = `${cachePath}.tmp-${randomBytes(6).toString('hex')}`;
+    await acquireGenerationSlot();
     try {
-        await sharp(absPath)
-            .resize({ width: dimension, height: dimension, fit: 'inside', withoutEnlargement: true })
-            .webp({ quality: 80 })
-            .toFile(tmpPath);
-        renameSync(tmpPath, cachePath);
-    } catch (err) {
-        if (existsSync(tmpPath)) unlinkSync(tmpPath);
-        throw err;
+        const dimension = SIZE_DIMENSIONS[size];
+        const dir = join(config.paths.thumbnails, size);
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+        const tmpPath = `${cachePath}.tmp-${randomBytes(6).toString('hex')}`;
+        try {
+            await sharp(absPath)
+                .resize({ width: dimension, height: dimension, fit: 'inside', withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toFile(tmpPath);
+            renameSync(tmpPath, cachePath);
+        } catch (err) {
+            if (existsSync(tmpPath)) unlinkSync(tmpPath);
+            throw err;
+        }
+    } finally {
+        releaseGenerationSlot();
     }
 }
 

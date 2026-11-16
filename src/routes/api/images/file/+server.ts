@@ -4,7 +4,6 @@ import { join, resolve, relative, isAbsolute, extname } from 'path';
 import { config } from '$lib/server/config';
 import { ensureThumbnail, type ThumbSize } from '$lib/server/thumbnails';
 import type { RequestHandler } from '@sveltejs/kit';
-import { Readable } from 'stream';
 
 const MIME_TYPES: Record<string, string> = {
     '.jpg':  'image/jpeg',
@@ -24,9 +23,19 @@ const THUMB_SIZES = new Set<ThumbSize>(['thumb', 'preview']);
 
 function streamFile(path: string, contentType: string, size: number, cacheControl: string): Response {
     const stream = createReadStream(path);
-    const webStream = Readable.toWeb(stream) as ReadableStream;
+    // Surface read failures (e.g. the file is removed mid-stream) as a stream error instead of
+    // letting Node emit an unhandled 'error' event, which would crash the process.
+    stream.on('error', (err) => {
+        console.warn(`[Images] Error streaming ${path}:`, err);
+    });
 
-    return new Response(webStream, {
+    // Pass the Node stream directly rather than converting it with Readable.toWeb(): that adapter
+    // has a long-standing Node bug (nodejs/node#54205) where a client cancelling the response
+    // mid-stream (e.g. a browser aborting an <img> request on navigation) causes a double
+    // controller.close() that throws an *uncatchable* exception, crashing the whole process.
+    // Undici (the Response implementation) special-cases Node streams passed as the body, so this
+    // sidesteps the bug entirely.
+    return new Response(stream as unknown as BodyInit, {
         headers: {
             'Content-Type': contentType,
             'Content-Length': String(size),
