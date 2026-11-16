@@ -129,3 +129,55 @@ export function buildImagePayload(imageId: string, userId?: string) {
 
     return { ...image, liked, drawCount, skipCount, subjects: subjectData, tags: tagData };
 }
+
+/**
+ * Insert-or-update a single subject field's value on a single `imageSubjects`
+ * instance. Shared by the per-image field PATCH endpoint and the bulk
+ * edit-existing-subject endpoint so both stay in sync. Accepts either `db` or
+ * a transaction handle (same query-builder shape), so callers can wrap
+ * multiple calls in a single `db.transaction`.
+ *
+ * `exists` lets a caller that already knows (from a prior batched lookup)
+ * whether a row is present skip the extra per-call `select` — important for
+ * bulk callers looping over many instances/fields, where an unconditional
+ * select-before-write would otherwise mean one query per cell. When omitted,
+ * it's looked up here, matching the previous single-call behaviour.
+ */
+type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export function upsertImageSubjectFieldValue(
+    dbOrTx: DbOrTx,
+    args: { imageSubjectId: string; subjectId: string; subjectFieldId: string; value: string | null; exists?: boolean }
+) {
+    const { imageSubjectId, subjectId, subjectFieldId, value } = args;
+    const exists =
+        args.exists ??
+        dbOrTx
+            .select()
+            .from(imageSubjectFieldValues)
+            .where(
+                and(
+                    eq(imageSubjectFieldValues.imageSubjectId, imageSubjectId),
+                    eq(imageSubjectFieldValues.subjectFieldId, subjectFieldId)
+                )
+            )
+            .all().length > 0;
+
+    if (exists) {
+        dbOrTx
+            .update(imageSubjectFieldValues)
+            .set({ value })
+            .where(
+                and(
+                    eq(imageSubjectFieldValues.imageSubjectId, imageSubjectId),
+                    eq(imageSubjectFieldValues.subjectFieldId, subjectFieldId)
+                )
+            )
+            .run();
+    } else {
+        dbOrTx
+            .insert(imageSubjectFieldValues)
+            .values({ imageSubjectId, subjectId, subjectFieldId, value })
+            .run();
+    }
+}

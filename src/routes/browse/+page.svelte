@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, CheckSquare, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
+    import { ArrowLeft, CheckSquare, ChevronDown, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
     import LoadedImage from '$lib/components/LoadedImage.svelte';
@@ -76,9 +76,10 @@
             .catch(() => {});
     });
 
-    // ── Bulk add subject modal ─────────────────────────────────────────────
+    // ── Bulk add/edit subject modal ──────────────────────────────────────────
     let bulkUncatalogueOpen = $state(false);
     let bulkSubjectOpen = $state(false);
+    let bulkSubjectMode = $state<'add' | 'edit'>('add');
     let bulkSubjectId = $state<string | null>(null);
     let bulkSubjectFields = $state<SubjectField[]>([]);
     let bulkLabel = $state('');
@@ -86,6 +87,49 @@
     let bulkStatus = $state<'idle' | 'saving' | 'error'>('idle');
     let bulkErrorMessage = $state<string | null>(null);
     let bulkSuccessMessage = $state<string | null>(null);
+
+    // ── Bulk edit existing subject: per-image instance resolution ───────────
+    type BulkSubjectInstance = { id: string; label: string | null; fieldValues: Record<string, string | null> };
+    type BulkSubjectImage = { filePath: string; instances: BulkSubjectInstance[] };
+    let bulkEditImages = $state<BulkSubjectImage[]>([]);
+    let bulkEditLoading = $state(false);
+    // Chosen instance id per ambiguous image's filePath; absent/'' means "skip this image".
+    let bulkEditChoice = $state<Record<string, string>>({});
+    let bulkEditTouchedFields = $state<Record<string, boolean>>({});
+    // Accordion: at most one ambiguous image's instance picker is expanded at a time.
+    let bulkEditExpandedPath = $state<string | null>(null);
+
+    const bulkEditNoMatch = $derived(bulkEditImages.filter((i) => i.instances.length === 0));
+    const bulkEditSingle = $derived(bulkEditImages.filter((i) => i.instances.length === 1));
+    const bulkEditAmbiguous = $derived(bulkEditImages.filter((i) => i.instances.length > 1));
+    const bulkEditResolvedInstances = $derived([
+        ...bulkEditSingle.map((i) => i.instances[0]),
+        ...bulkEditAmbiguous
+            .map((i) => i.instances.find((inst) => inst.id === bulkEditChoice[i.filePath]))
+            .filter((inst): inst is BulkSubjectInstance => !!inst)
+    ]);
+
+    function bulkEditFieldState(fieldId: string): { common: string | null; mixed: boolean } {
+        if (bulkEditResolvedInstances.length === 0) return { common: null, mixed: false };
+        const values = bulkEditResolvedInstances.map((r) => r.fieldValues[fieldId] ?? null);
+        const mixed = !values.every((v) => v === values[0]);
+        return { common: mixed ? null : values[0], mixed };
+    }
+
+    function bulkFieldDisplayValue(fieldId: string): string {
+        if (bulkSubjectMode === 'edit' && !bulkEditTouchedFields[fieldId]) {
+            const { common, mixed } = bulkEditFieldState(fieldId);
+            return mixed ? '' : (common ?? '');
+        }
+        return bulkFieldValues[fieldId] ?? '';
+    }
+
+    function setBulkFieldValue(fieldId: string, value: string | null) {
+        bulkFieldValues = { ...bulkFieldValues, [fieldId]: value };
+        if (bulkSubjectMode === 'edit') {
+            bulkEditTouchedFields = { ...bulkEditTouchedFields, [fieldId]: true };
+        }
+    }
 
     // ── Bulk add tag modal ───────────────────────────────────────────────────
     let bulkTagOpen = $state(false);
@@ -416,14 +460,23 @@
         setTimeout(() => { bulkSuccessMessage = null; }, 3000);
     }
 
-    // ── Bulk add subject ───────────────────────────────────────────────────────
-    function resetBulkModal() {
+    // ── Bulk add/edit subject ───────────────────────────────────────────────────
+    function resetBulkSelection() {
         bulkSubjectId = null;
         bulkSubjectFields = [];
         bulkLabel = '';
         bulkFieldValues = {};
+        bulkEditImages = [];
+        bulkEditChoice = {};
+        bulkEditExpandedPath = null;
+        bulkEditTouchedFields = {};
         bulkStatus = 'idle';
         bulkErrorMessage = null;
+    }
+
+    function resetBulkModal() {
+        resetBulkSelection();
+        bulkSubjectMode = 'add';
     }
 
     $effect(() => {
@@ -438,6 +491,37 @@
                 bulkSubjectFields = data.map((f) => ({ ...f, value: null }));
             })
             .catch(() => {});
+    });
+
+    $effect(() => {
+        const id = bulkSubjectId;
+        const mode = bulkSubjectMode;
+        if (mode !== 'edit' || !id || selectedPaths.size === 0) {
+            bulkEditImages = [];
+            return;
+        }
+        bulkEditLoading = true;
+        bulkErrorMessage = null;
+        fetch('/api/images/bulk-subjects/instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePaths: Array.from(selectedPaths), subjectId: id })
+        })
+            .then(async (r) => {
+                if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? 'Failed to check selected images');
+                return r.json();
+            })
+            .then((data: BulkSubjectImage[]) => {
+                bulkEditImages = data;
+                bulkEditChoice = {};
+                bulkEditExpandedPath = null;
+                bulkEditTouchedFields = {};
+            })
+            .catch((err: Error) => {
+                bulkEditImages = [];
+                bulkErrorMessage = err.message || 'Failed to check selected images';
+            })
+            .finally(() => { bulkEditLoading = false; });
     });
 
     async function bulkAddSubject() {
@@ -468,6 +552,44 @@
             bulkSubjectOpen = false;
             resetBulkModal();
             bulkSuccessMessage = `Subject added to ${count} ${count === 1 ? 'image' : 'images'}`;
+            setTimeout(() => { bulkSuccessMessage = null; }, 3000);
+        } catch {
+            bulkErrorMessage = 'An unexpected error occurred';
+            bulkStatus = 'error';
+        }
+    }
+
+    async function bulkEditSubject() {
+        const resolved = bulkEditResolvedInstances;
+        if (!bulkSubjectId || resolved.length === 0 || Object.keys(bulkEditTouchedFields).length === 0) return;
+        bulkStatus = 'saving';
+        bulkErrorMessage = null;
+        try {
+            const fieldValuesToSend: Record<string, string | null> = {};
+            for (const fieldId of Object.keys(bulkEditTouchedFields)) {
+                fieldValuesToSend[fieldId] = bulkFieldValues[fieldId] ?? null;
+            }
+            const res = await fetch('/api/images/bulk-subjects', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    imageSubjectIds: resolved.map((i) => i.id),
+                    subjectId: bulkSubjectId,
+                    fieldValues: fieldValuesToSend
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                bulkErrorMessage = data.error ?? 'Failed to update subjects';
+                bulkStatus = 'error';
+                return;
+            }
+            const skippedAmbiguous = bulkEditAmbiguous.length - bulkEditAmbiguous.filter((i) => bulkEditChoice[i.filePath]).length;
+            const skipped = bulkEditNoMatch.length + skippedAmbiguous;
+            bulkSubjectOpen = false;
+            resetBulkModal();
+            bulkSuccessMessage = `Updated ${data.updated} ${data.updated === 1 ? 'image' : 'images'}`
+                + (skipped > 0 ? ` (${skipped} skipped)` : '');
             setTimeout(() => { bulkSuccessMessage = null; }, 3000);
         } catch {
             bulkErrorMessage = 'An unexpected error occurred';
@@ -861,7 +983,7 @@
                                 class="btn btn-primary flex items-center gap-2"
                             >
                                 <Plus class="w-4 h-4" />
-                                Add Subject
+                                Subjects
                             </button>
                             <button
                                 type="button"
@@ -970,7 +1092,7 @@
             class="btn btn-primary flex items-center gap-2"
         >
             <Plus class="w-4 h-4" />
-            Subject
+            Subjects
         </button>
         <button
             type="button"
@@ -999,12 +1121,34 @@
 
 <Modal
     bind:open={bulkSubjectOpen}
-    title="Add subject to {selectedPaths.size} {selectedPaths.size === 1 ? 'image' : 'images'}"
+    title={bulkSubjectMode === 'add'
+        ? `Add subject to ${selectedPaths.size} ${selectedPaths.size === 1 ? 'image' : 'images'}`
+        : `Edit subject on ${selectedPaths.size} ${selectedPaths.size === 1 ? 'image' : 'images'}`}
     onclose={resetBulkModal}
 >
     {#if !bulkSubjectId}
         <div class="flex flex-col gap-3">
-            <p class="text-sm text-warm-gray">Choose a subject to add to all selected images:</p>
+            <div class="flex gap-1 border-b border-muted">
+                <button
+                    type="button"
+                    onclick={() => { bulkSubjectMode = 'add'; }}
+                    class="px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors {bulkSubjectMode === 'add' ? 'border-terracotta text-ink' : 'border-transparent text-warm-gray hover:text-ink'}"
+                >
+                    Add new
+                </button>
+                <button
+                    type="button"
+                    onclick={() => { bulkSubjectMode = 'edit'; }}
+                    class="px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors {bulkSubjectMode === 'edit' ? 'border-terracotta text-ink' : 'border-transparent text-warm-gray hover:text-ink'}"
+                >
+                    Edit existing
+                </button>
+            </div>
+            <p class="text-sm text-warm-gray">
+                {bulkSubjectMode === 'add'
+                    ? 'Choose a subject to add to all selected images:'
+                    : 'Choose a subject to edit on images that already have it:'}
+            </p>
             <ItemPickerList
                 items={allSubjects}
                 onSelect={(id) => { bulkSubjectId = id; }}
@@ -1021,7 +1165,7 @@
             <div class="flex items-center gap-2">
                 <button
                     type="button"
-                    onclick={resetBulkModal}
+                    onclick={resetBulkSelection}
                     class="flex items-center gap-1 text-xs text-warm-gray hover:text-ink transition-colors shrink-0"
                 >
                     <ArrowLeft class="w-3 h-3" />
@@ -1032,71 +1176,165 @@
                 </span>
             </div>
 
-            <div class="flex flex-col gap-1">
-                <label for="bulk-label" class="text-xs font-medium text-warm-gray">Label</label>
-                <input
-                    id="bulk-label"
-                    type="text"
-                    bind:value={bulkLabel}
-                    placeholder="Add label…"
-                    class="rounded-lg border-muted text-sm w-full"
-                />
-            </div>
-
-            {#each bulkSubjectFields as field (field.id)}
+            <!-- One clean outer scroll region for everything below, rather than
+                 nested scrollable sub-boxes — same approach as MissingFilesModal. -->
+            <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
+            {#if bulkSubjectMode === 'add'}
                 <div class="flex flex-col gap-1">
-                    <label for="bulk-field-{field.id}" class="text-xs font-medium text-warm-gray flex items-center gap-1">
-                        {field.name}
-                        {#if field.required}<span class="text-terracotta">*</span>{/if}
-                    </label>
-                    {#if field.type === 'boolean'}
-                        <label class="flex items-center gap-2 cursor-pointer">
+                    <label for="bulk-label" class="text-xs font-medium text-warm-gray">Label</label>
+                    <input
+                        id="bulk-label"
+                        type="text"
+                        bind:value={bulkLabel}
+                        placeholder="Add label…"
+                        class="rounded-lg border-muted text-sm w-full"
+                    />
+                </div>
+            {:else if bulkEditLoading}
+                <p class="text-sm text-warm-gray py-2">Checking selected images…</p>
+            {:else}
+                {#if bulkEditNoMatch.length > 0}
+                    <p class="text-xs text-warm-gray">
+                        {bulkEditNoMatch.length} {bulkEditNoMatch.length === 1 ? 'image isn\u2019t catalogued or doesn\u2019t have' : 'images aren\u2019t catalogued or don\u2019t have'} this subject, and will be skipped.
+                    </p>
+                {/if}
+
+                {#if bulkEditAmbiguous.length > 0}
+                    {@const ambiguousSubjectName = allSubjects.find((s) => s.id === bulkSubjectId)?.name ?? 'Subject'}
+                    <div class="flex flex-col gap-2 border border-muted rounded-lg p-2">
+                        <p class="text-xs font-medium text-warm-gray">
+                            {bulkEditAmbiguous.length} {bulkEditAmbiguous.length === 1 ? 'image has' : 'images have'} multiple instances of this subject — choose which one to edit:
+                        </p>
+                        <div class="flex flex-col gap-2">
+                            {#each bulkEditAmbiguous as image (image.filePath)}
+                                {@const chosenId = bulkEditChoice[image.filePath] ?? ''}
+                                {@const chosenIndex = image.instances.findIndex((inst) => inst.id === chosenId)}
+                                {@const chosenInstance = chosenIndex === -1 ? null : image.instances[chosenIndex]}
+                                {@const isExpanded = bulkEditExpandedPath === image.filePath}
+                                <div class="rounded-lg border border-muted overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onclick={() => { bulkEditExpandedPath = isExpanded ? null : image.filePath; }}
+                                        class="flex items-center gap-2 w-full py-2 px-2.5 bg-pressed text-left"
+                                    >
+                                        {#if isExpanded}
+                                            <ChevronDown class="w-3.5 h-3.5 text-warm-gray shrink-0" />
+                                        {:else}
+                                            <ChevronRight class="w-3.5 h-3.5 text-warm-gray shrink-0" />
+                                        {/if}
+                                        <span class="text-xs text-ink truncate flex-1 min-w-0">{image.filePath.split('/').pop()}</span>
+                                        <span class="text-xs shrink-0 {chosenInstance ? 'text-terracotta font-medium' : 'text-warm-gray'}">
+                                            {chosenInstance
+                                                ? `${ambiguousSubjectName} #${chosenIndex + 1}${chosenInstance.label ? ` — ${chosenInstance.label}` : ''}`
+                                                : 'Skipped'}
+                                        </span>
+                                    </button>
+                                    {#if isExpanded}
+                                        <div class="flex flex-col gap-1 p-2">
+                                            {#each image.instances as instance, i (instance.id)}
+                                                {@const selected = chosenId === instance.id}
+                                                <button
+                                                    type="button"
+                                                    onclick={() => { bulkEditChoice = { ...bulkEditChoice, [image.filePath]: instance.id }; }}
+                                                    class="text-left rounded-lg border px-2 py-1.5 transition-colors
+                                                        {selected ? 'border-terracotta bg-terracotta-tint' : 'border-muted hover:bg-pressed'}"
+                                                >
+                                                    <!-- "#{i + 1}" matches the ordinal shown for this same instance in the
+                                                         per-image detail panel (both are ordered by imageSubjects.id asc server-side) -->
+                                                    <span class="text-xs font-medium text-ink">
+                                                        {ambiguousSubjectName} #{i + 1}{instance.label ? ` — ${instance.label}` : ''}
+                                                    </span>
+                                                    {#if bulkSubjectFields.length > 0}
+                                                        <div class="flex flex-wrap gap-1 mt-1">
+                                                            {#each bulkSubjectFields as field (field.id)}
+                                                                <span class="text-[10px] px-1.5 py-0.5 bg-canvas border border-muted rounded text-warm-gray">
+                                                                    {field.name}: {instance.fieldValues[field.id] ?? '—'}
+                                                                </span>
+                                                            {/each}
+                                                        </div>
+                                                    {/if}
+                                                </button>
+                                            {/each}
+                                            <button
+                                                type="button"
+                                                onclick={() => { bulkEditChoice = { ...bulkEditChoice, [image.filePath]: '' }; }}
+                                                class="text-left rounded-lg border px-2 py-1.5 text-xs transition-colors
+                                                    {chosenId === '' ? 'border-terracotta bg-terracotta-tint text-ink' : 'border-muted text-warm-gray hover:bg-pressed'}"
+                                            >
+                                                Skip this image
+                                            </button>
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+
+                {#if bulkEditResolvedInstances.length === 0}
+                    <p class="text-sm text-warm-gray py-2">No images are eligible to edit yet.</p>
+                {/if}
+            {/if}
+
+            {#if bulkSubjectMode === 'add' || (!bulkEditLoading && bulkEditResolvedInstances.length > 0)}
+                {#each bulkSubjectFields as field (field.id)}
+                    {@const mixed = bulkSubjectMode === 'edit' && !bulkEditTouchedFields[field.id] && bulkEditFieldState(field.id).mixed}
+                    <div class="flex flex-col gap-1">
+                        <label for="bulk-field-{field.id}" class="text-xs font-medium text-warm-gray flex items-center gap-1">
+                            {field.name}
+                            {#if field.required}<span class="text-terracotta">*</span>{/if}
+                            {#if mixed}<span class="text-warm-gray font-normal italic">(Mixed)</span>{/if}
+                        </label>
+                        {#if field.type === 'boolean'}
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    id="bulk-field-{field.id}"
+                                    type="checkbox"
+                                    checked={bulkFieldDisplayValue(field.id) === 'true'}
+                                    onchange={(e) => { setBulkFieldValue(field.id, e.currentTarget.checked ? 'true' : 'false'); }}
+                                    class="rounded border-muted"
+                                />
+                                <span class="text-sm text-ink">Yes</span>
+                            </label>
+                        {:else if field.type === 'select'}
+                            <select
+                                id="bulk-field-{field.id}"
+                                value={bulkFieldDisplayValue(field.id)}
+                                onchange={(e) => { setBulkFieldValue(field.id, e.currentTarget.value || null); }}
+                                class="rounded-lg border-muted text-sm w-full"
+                            >
+                                <option value="">{mixed ? '— Mixed —' : '— Select —'}</option>
+                                {#each field.options ?? [] as option (option)}
+                                    <option value={option}>{option}</option>
+                                {/each}
+                            </select>
+                        {:else if field.type === 'number'}
                             <input
                                 id="bulk-field-{field.id}"
-                                type="checkbox"
-                                checked={bulkFieldValues[field.id] === 'true'}
-                                onchange={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.checked ? 'true' : 'false' }; }}
-                                class="rounded border-muted"
+                                type="number"
+                                value={bulkFieldDisplayValue(field.id)}
+                                oninput={(e) => { setBulkFieldValue(field.id, e.currentTarget.value || null); }}
+                                placeholder={mixed ? '(Mixed)' : 'Enter number…'}
+                                class="rounded-lg border-muted text-sm w-full"
                             />
-                            <span class="text-sm text-ink">Yes</span>
-                        </label>
-                    {:else if field.type === 'select'}
-                        <select
-                            id="bulk-field-{field.id}"
-                            value={bulkFieldValues[field.id] ?? ''}
-                            onchange={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
-                            class="rounded-lg border-muted text-sm w-full"
-                        >
-                            <option value="">— Select —</option>
-                            {#each field.options ?? [] as option (option)}
-                                <option value={option}>{option}</option>
-                            {/each}
-                        </select>
-                    {:else if field.type === 'number'}
-                        <input
-                            id="bulk-field-{field.id}"
-                            type="number"
-                            value={bulkFieldValues[field.id] ?? ''}
-                            oninput={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
-                            placeholder="Enter number…"
-                            class="rounded-lg border-muted text-sm w-full"
-                        />
-                    {:else}
-                        <input
-                            id="bulk-field-{field.id}"
-                            type="text"
-                            value={bulkFieldValues[field.id] ?? ''}
-                            oninput={(e) => { bulkFieldValues = { ...bulkFieldValues, [field.id]: e.currentTarget.value || null }; }}
-                            placeholder="Enter text…"
-                            class="rounded-lg border-muted text-sm w-full"
-                        />
-                    {/if}
-                </div>
-            {/each}
+                        {:else}
+                            <input
+                                id="bulk-field-{field.id}"
+                                type="text"
+                                value={bulkFieldDisplayValue(field.id)}
+                                oninput={(e) => { setBulkFieldValue(field.id, e.currentTarget.value || null); }}
+                                placeholder={mixed ? '(Mixed)' : 'Enter text…'}
+                                class="rounded-lg border-muted text-sm w-full"
+                            />
+                        {/if}
+                    </div>
+                {/each}
+            {/if}
 
             {#if bulkErrorMessage}
                 <p class="text-sm text-red-600">{bulkErrorMessage}</p>
             {/if}
+            </div>
         </div>
 
         <div class="flex justify-end gap-2 mt-4">
@@ -1107,14 +1345,25 @@
             >
                 Cancel
             </button>
-            <button
-                type="button"
-                onclick={bulkAddSubject}
-                disabled={bulkStatus === 'saving'}
-                class="btn btn-primary"
-            >
-                {bulkStatus === 'saving' ? 'Adding…' : `Add to ${selectedPaths.size} ${selectedPaths.size === 1 ? 'image' : 'images'}`}
-            </button>
+            {#if bulkSubjectMode === 'add'}
+                <button
+                    type="button"
+                    onclick={bulkAddSubject}
+                    disabled={bulkStatus === 'saving'}
+                    class="btn btn-primary"
+                >
+                    {bulkStatus === 'saving' ? 'Adding…' : `Add to ${selectedPaths.size} ${selectedPaths.size === 1 ? 'image' : 'images'}`}
+                </button>
+            {:else}
+                <button
+                    type="button"
+                    onclick={bulkEditSubject}
+                    disabled={bulkStatus === 'saving' || bulkEditResolvedInstances.length === 0 || Object.keys(bulkEditTouchedFields).length === 0}
+                    class="btn btn-primary"
+                >
+                    {bulkStatus === 'saving' ? 'Updating…' : `Update ${bulkEditResolvedInstances.length} ${bulkEditResolvedInstances.length === 1 ? 'image' : 'images'}`}
+                </button>
+            {/if}
         </div>
     {/if}
 </Modal>
