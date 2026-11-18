@@ -1,17 +1,24 @@
 <script lang="ts">
-    import { ArrowLeft, CheckSquare, ChevronDown, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Plus, Search, Square, X } from 'lucide-svelte';
+    import { ArrowLeft, CheckSquare, ChevronDown, ChevronRight, File, FileImage, Folder, Heart, House, LayoutGrid, List, Pencil, Plus, Search, Square, X } from 'lucide-svelte';
     import Modal from '$lib/components/Modal.svelte';
     import ImageDetailPanel from '$lib/components/ImageDetailPanel.svelte';
     import LoadedImage from '$lib/components/LoadedImage.svelte';
     import MissingFilesBanner from '$lib/components/MissingFilesBanner.svelte';
     import ItemPickerList from '$lib/components/ItemPickerList.svelte';
+    import FolderThumbnailPicker from '$lib/components/FolderThumbnailPicker.svelte';
+    import { authClient } from '$lib/auth-client';
     import { isImageFile } from '$lib/utils/images';
 
     type FilterType = 'all' | 'catalogued' | 'uncatalogued';
     type ViewMode = 'grid' | 'list';
     type BrowseItem =
-        | { name: string; type: 'dir' }
+        | { name: string; type: 'dir'; thumbnails: string[] }
         | { name: string; type: 'file'; catalogued: boolean; liked: boolean; imageId?: string };
+
+    // Folder thumbnail picker is a catalogue-management action — admin only (same
+    // gating as the catalogue editing controls in ImageDetailPanel).
+    const session = authClient.useSession();
+    const isAdmin = $derived($session.data?.user.role === 'admin');
     type SubjectField = { id: string; name: string; type: 'text' | 'number' | 'boolean' | 'select'; options: string[] | null; required: boolean; value: string | null; };
 
     // ── Browse state ───────────────────────────────────────────────────────────
@@ -135,6 +142,40 @@
     let bulkTagOpen = $state(false);
     let bulkTagStatus = $state<'idle' | 'saving' | 'error'>('idle');
     let bulkTagErrorMessage = $state<string | null>(null);
+
+    // ── Folder thumbnail picker (admin) ──────────────────────────────────────
+    let editingFolderName = $state<string | null>(null);
+    const editingFolderPath = $derived(
+        editingFolderName ? [...currentPath, editingFolderName].join('/') : null
+    );
+    const editingFolderThumbnails = $derived(
+        (items.find((i) => i.type === 'dir' && i.name === editingFolderName) as (BrowseItem & { type: 'dir' }) | undefined)
+            ?.thumbnails ?? []
+    );
+
+    function openFolderThumbnailPicker(name: string) {
+        editingFolderName = name;
+    }
+
+    function closeFolderThumbnailPicker() {
+        editingFolderName = null;
+    }
+
+    async function saveFolderThumbnails(imagePaths: string[]) {
+        const folderPath = editingFolderPath;
+        const name = editingFolderName;
+        if (!folderPath || !name) return;
+        const res = await fetch('/api/folder-thumbnails', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folderPath, imagePaths })
+        });
+        if (!res.ok) return;
+        items = items.map((item) =>
+            item.type === 'dir' && item.name === name ? { ...item, thumbnails: imagePaths } : item
+        );
+        closeFolderThumbnailPicker();
+    }
 
     // ── Debounce: search ───────────────────────────────────────────────────────
     $effect(() => {
@@ -659,10 +700,41 @@
             onclick={() => navigateInto(item.name)}
             class="block w-full h-full focus:outline-none"
         >
-            <div class="w-full h-full flex items-center justify-center bg-pressed">
-                <Folder class="w-8 h-8 text-terracotta" />
-            </div>
+            {#if item.thumbnails.length > 0}
+                <div class="w-full h-full grid grid-cols-2 grid-rows-2 gap-px bg-muted">
+                    {#each [0, 1, 2, 3] as slot (slot)}
+                        {#if item.thumbnails[slot]}
+                            <LoadedImage
+                                src="/api/images/file?path={encodeURIComponent(item.thumbnails[slot])}&size=thumb"
+                                alt=""
+                                class="w-full h-full object-cover"
+                                draggable={false}
+                                loading="lazy"
+                            />
+                        {:else}
+                            <div class="w-full h-full bg-pressed"></div>
+                        {/if}
+                    {/each}
+                </div>
+            {:else}
+                <div class="w-full h-full flex items-center justify-center bg-pressed">
+                    <Folder class="w-8 h-8 text-terracotta" />
+                </div>
+            {/if}
         </button>
+
+        {#if isAdmin}
+            <button
+                type="button"
+                onclick={() => openFolderThumbnailPicker(item.name)}
+                class="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/50 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+                aria-label="Choose folder thumbnails"
+                title="Choose folder thumbnails"
+            >
+                <Pencil class="w-3.5 h-3.5" />
+            </button>
+        {/if}
+
         <div class="absolute bottom-0 left-0 right-0 px-1.5 pt-4 pb-1 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
             <span class="text-[11px] text-white truncate block">{item.name}</span>
         </div>
@@ -1395,3 +1467,15 @@
         <button type="button" onclick={() => { bulkTagOpen = false; }} class="btn">Cancel</button>
     </div>
 </Modal>
+
+{#if editingFolderName && editingFolderPath}
+    <Modal open={true} title="Choose folder thumbnails" onclose={closeFolderThumbnailPicker} maxWidth="max-w-xl">
+        <FolderThumbnailPicker
+            folderPath={editingFolderPath}
+            folderName={editingFolderName}
+            initialSelection={editingFolderThumbnails}
+            onSave={saveFolderThumbnails}
+            onCancel={closeFolderThumbnailPicker}
+        />
+    </Modal>
+{/if}

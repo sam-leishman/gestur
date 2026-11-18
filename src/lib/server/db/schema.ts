@@ -206,6 +206,21 @@ export const imageTagsRelations = relations(imageTags, ({ one }) => ({
 
 
 // ===========================================================================
+// FOLDER THUMBNAILS
+// ===========================================================================
+// Admin-chosen override for the up-to-4 images shown on a folder's grid card.
+// `folderPath` is the folder's path relative to the images root (same
+// convention as `images.filePath`); `imagePaths` is an ordered JSON array of
+// relative file paths. When no row exists for a folder, the browse API falls
+// back to the first 4 images found by scanning the folder's subtree.
+export const folderThumbnails = sqliteTable('folder_thumbnails', {
+	folderPath: text('folder_path').primaryKey(),
+	imagePaths: text('image_paths', { mode: 'json' }).$type<string[]>().notNull()
+});
+
+
+
+// ===========================================================================
 // USER SETTINGS
 // ===========================================================================
 export const userSettings = sqliteTable('user_settings', {
