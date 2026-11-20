@@ -16,7 +16,7 @@ export const GET: RequestHandler = () => {
 
     const directories: SessionDirectoryOption[] = Array.from(counts.entries())
         .map(([key, count]) => ({ key, label: key === ROOT_DIRECTORY_KEY ? '(Root)' : key, count }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 
     return json({ directories });
 };

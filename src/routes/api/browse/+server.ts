@@ -60,7 +60,7 @@ export const GET: RequestHandler = ({ url, locals }) => {
 				acc.push({ name: relPath, type: 'file', catalogued, liked: likedPaths.has(relPath), imageId: pathToId.get(relPath) });
 				return acc;
 			}, [])
-			.sort((a, b) => a.name.localeCompare(b.name));
+			.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
 		return json({ items: files });
 	}
@@ -96,8 +96,8 @@ export const GET: RequestHandler = ({ url, locals }) => {
 		}
 	}
 
-	dirNames.sort((a, b) => a.localeCompare(b));
-	files.sort((a, b) => a.name.localeCompare(b.name));
+	dirNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+	files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
 	const folders = dirNames.map((name) => ({
 		name,
@@ -143,7 +143,7 @@ function collectFirstImageFiles(dirPath: string, imagesRoot: string, limit: numb
 		} catch {
 			return;
 		}
-		entries.sort((a, b) => a.name.localeCompare(b.name));
+		entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
 		for (const entry of entries) {
 			if (result.length >= limit) return;

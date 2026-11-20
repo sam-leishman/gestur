@@ -92,9 +92,9 @@
             }
             const result: Entity = await res.json();
             if (modalEdit) {
-                items = items.map((i) => (i.id === result.id ? result : i)).sort((a, b) => a.name.localeCompare(b.name));
+                items = items.map((i) => (i.id === result.id ? result : i)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
             } else {
-                items = [...items, result].sort((a, b) => a.name.localeCompare(b.name));
+                items = [...items, result].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
             }
             modalOpen = false;
         } finally {
