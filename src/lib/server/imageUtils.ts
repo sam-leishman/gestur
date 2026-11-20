@@ -83,15 +83,16 @@ export function buildImagePayload(imageId: string, userId?: string) {
             imageSubjectId: imageSubjects.id,
             subjectId: subjects.id,
             subjectName: subjects.name,
-            label: imageSubjects.label
+            label: imageSubjects.label,
+            sortOrder: imageSubjects.sortOrder
         })
         .from(imageSubjects)
         .innerJoin(subjects, eq(imageSubjects.subjectId, subjects.id))
         .where(eq(imageSubjects.imageId, imageId))
-        .orderBy(asc(subjects.name), asc(imageSubjects.id))
+        .orderBy(asc(subjects.name), asc(imageSubjects.sortOrder), asc(imageSubjects.id))
         .all();
 
-    const subjectData = linkedSubjects.map(({ imageSubjectId, subjectId, subjectName, label }) => {
+    const subjectData = linkedSubjects.map(({ imageSubjectId, subjectId, subjectName, label, sortOrder }) => {
         const fields = db
             .select()
             .from(subjectFields)
@@ -112,6 +113,7 @@ export function buildImagePayload(imageId: string, userId?: string) {
             subjectId,
             subjectName,
             label,
+            sortOrder,
             fields: fields.map((f) => ({
                 ...f,
                 value: valueMap[f.id] ?? null

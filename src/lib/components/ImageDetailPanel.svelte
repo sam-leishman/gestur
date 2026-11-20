@@ -2,7 +2,7 @@
     import Modal from '$lib/components/Modal.svelte';
     import AddItemDropdown from '$lib/components/AddItemDropdown.svelte';
     import { authClient } from '$lib/auth-client';
-    import { Heart, Trash2, Pencil, SkipForward, X } from 'lucide-svelte';
+    import { Heart, Trash2, Pencil, SkipForward, X, GripVertical } from 'lucide-svelte';
 
     type FieldType = 'text' | 'number' | 'boolean' | 'select';
     type SubjectField = {
@@ -20,6 +20,7 @@
         subjectId: string;
         subjectName: string;
         label: string | null;
+        sortOrder: number;
         fields: SubjectField[];
     };
     type LinkedTag = { id: string; name: string };
@@ -207,6 +208,63 @@
         const res = await fetch(`/api/images/${imageData.id}/subjects/${imageSubjectId}`, { method: 'DELETE' });
         if (!res.ok) return;
         imageData = { ...imageData, subjects: imageData.subjects.filter((s) => s.imageSubjectId !== imageSubjectId) };
+    }
+
+    // ── Drag-and-drop (reorder same-subject instances) ─────────────────────────
+    // Instances of a given subject are only reorderable amongst themselves —
+    // their ordinal ("Person #1" / "Person #2") is their position within that
+    // subgroup, so dragging across subjects wouldn't mean anything.
+    let instanceDragSourceId = $state<string | null>(null);
+    let instanceDragOverId = $state<string | null>(null);
+
+    function onInstanceDragStart(imageSubjectId: string) {
+        instanceDragSourceId = imageSubjectId;
+    }
+
+    function onInstanceDragOver(e: DragEvent, linkedSubject: LinkedSubject) {
+        if (!imageData) return;
+        const source = imageData.subjects.find((s) => s.imageSubjectId === instanceDragSourceId);
+        if (!source || source.subjectId !== linkedSubject.subjectId) return;
+        e.preventDefault();
+        instanceDragOverId = linkedSubject.imageSubjectId;
+    }
+
+    async function onInstanceDrop(targetId: string) {
+        const sourceId = instanceDragSourceId;
+        instanceDragSourceId = null;
+        instanceDragOverId = null;
+        if (!imageData || !sourceId || sourceId === targetId) return;
+
+        const source = imageData.subjects.find((s) => s.imageSubjectId === sourceId);
+        const target = imageData.subjects.find((s) => s.imageSubjectId === targetId);
+        if (!source || !target || source.subjectId !== target.subjectId) return;
+
+        const snapshot = imageData;
+        const group = imageData.subjects.filter((s) => s.subjectId === source.subjectId);
+        const otherIndices = imageData.subjects.reduce<number[]>((acc, s, i) => (s.subjectId === source.subjectId ? [...acc, i] : acc), []);
+
+        const sourceIndex = group.findIndex((s) => s.imageSubjectId === sourceId);
+        const targetIndex = group.findIndex((s) => s.imageSubjectId === targetId);
+        const reorderedGroup = [...group];
+        const [moved] = reorderedGroup.splice(sourceIndex, 1);
+        reorderedGroup.splice(targetIndex, 0, moved);
+        const withOrder = reorderedGroup.map((s, i) => ({ ...s, sortOrder: i }));
+
+        const newSubjects = [...imageData.subjects];
+        otherIndices.forEach((arrayIndex, groupIndex) => { newSubjects[arrayIndex] = withOrder[groupIndex]; });
+        imageData = { ...imageData, subjects: newSubjects };
+
+        const res = await fetch(`/api/images/${imageData.id}/subjects/reorder`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: withOrder.map((s) => ({ id: s.imageSubjectId, sortOrder: s.sortOrder })) })
+        });
+        if (!res.ok) imageData = snapshot;
+    }
+
+    function onInstanceDragEnd() {
+        instanceDragSourceId = null;
+        instanceDragOverId = null;
     }
 
     async function addTag(tagId: string) {
@@ -424,8 +482,23 @@
                     {#each imageData.subjects as linkedSubject (linkedSubject.imageSubjectId)}
                         {@const instanceCount = imageData.subjects.filter((s) => s.subjectId === linkedSubject.subjectId).length}
                         {@const instanceOrdinal = instanceCount > 1 ? imageData.subjects.filter((s) => s.subjectId === linkedSubject.subjectId).findIndex((s) => s.imageSubjectId === linkedSubject.imageSubjectId) + 1 : null}
-                        <div class="border border-muted rounded-lg overflow-hidden">
+                        {@const reorderable = isAdmin && instanceCount > 1}
+                        <div
+                            class="border rounded-lg overflow-hidden transition-colors
+                                {instanceDragOverId === linkedSubject.imageSubjectId && instanceDragSourceId !== linkedSubject.imageSubjectId ? 'border-terracotta' : 'border-muted'}"
+                            role="listitem"
+                            draggable={reorderable}
+                            ondragstart={() => reorderable && onInstanceDragStart(linkedSubject.imageSubjectId)}
+                            ondragover={(e) => reorderable && onInstanceDragOver(e, linkedSubject)}
+                            ondrop={() => reorderable && onInstanceDrop(linkedSubject.imageSubjectId)}
+                            ondragend={onInstanceDragEnd}
+                        >
                             <div class="flex items-center gap-2 px-3 py-2 bg-pressed">
+                                {#if reorderable}
+                                    <span class="cursor-grab text-muted hover:text-warm-gray transition-colors shrink-0" aria-hidden="true">
+                                        <GripVertical class="w-3.5 h-3.5" />
+                                    </span>
+                                {/if}
                                 <span class="text-xs font-medium text-warm-gray shrink-0 bg-canvas border border-muted rounded px-1.5 py-0.5">
                                     {linkedSubject.subjectName}{instanceOrdinal ? ` #${instanceOrdinal}` : ''}
                                 </span>

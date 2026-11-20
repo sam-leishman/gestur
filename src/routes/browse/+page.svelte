@@ -1312,7 +1312,7 @@
                                                         {selected ? 'border-terracotta bg-terracotta-tint' : 'border-muted hover:bg-pressed'}"
                                                 >
                                                     <!-- "#{i + 1}" matches the ordinal shown for this same instance in the
-                                                         per-image detail panel (both are ordered by imageSubjects.id asc server-side) -->
+                                                         per-image detail panel (both are ordered by imageSubjects.sortOrder asc server-side) -->
                                                     <span class="text-xs font-medium text-ink">
                                                         {ambiguousSubjectName} #{i + 1}{instance.label ? ` — ${instance.label}` : ''}
                                                     </span>

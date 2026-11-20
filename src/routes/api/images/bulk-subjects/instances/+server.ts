@@ -39,17 +39,17 @@ export const POST: RequestHandler = async ({ request }) => {
     const imageIds = matchedImages.map((i) => i.id);
 
     // Ordered the same way `buildImagePayload` orders an image's subjects
-    // (asc by `imageSubjects.id`) so an instance's position/ordinal here
-    // matches the "Pose #1" / "Pose #2" numbering shown in the per-image
-    // detail panel — otherwise the two UIs can disagree about which
-    // instance is "#1", which is exactly the confusing-looking mismatch
-    // this ordering avoids.
+    // (asc by `sortOrder`, falling back to `id`) so an instance's
+    // position/ordinal here matches the "Pose #1" / "Pose #2" numbering
+    // shown in the per-image detail panel — otherwise the two UIs can
+    // disagree about which instance is "#1", which is exactly the
+    // confusing-looking mismatch this ordering avoids.
     const instanceRows = queryChunked(imageIds, (ids) =>
         db
             .select({ id: imageSubjects.id, imageId: imageSubjects.imageId, label: imageSubjects.label })
             .from(imageSubjects)
             .where(and(inArray(imageSubjects.imageId, ids), eq(imageSubjects.subjectId, subjectId)))
-            .orderBy(asc(imageSubjects.id))
+            .orderBy(asc(imageSubjects.sortOrder), asc(imageSubjects.id))
             .all()
     );
     const instanceIds = instanceRows.map((r) => r.id);

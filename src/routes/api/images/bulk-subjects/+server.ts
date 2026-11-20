@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { images, imageSubjects, subjects, subjectFields, imageSubjectFieldValues } from '$lib/server/db/schema';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, max } from 'drizzle-orm';
 import type { RequestHandler } from '@sveltejs/kit';
 import { upsertImageSubjectFieldValue } from '$lib/server/imageUtils';
 import { chunk } from '$lib/server/dbUtils';
@@ -45,9 +45,19 @@ export const POST: RequestHandler = async ({ request }) => {
                         .all();
                 }
 
+                // Append after any existing instances of this subject on this
+                // image, same as the single-image "Add Subject" flow, so bulk
+                // adds don't jump to position #1 ahead of already-linked instances.
+                const [{ maxSortOrder }] = tx
+                    .select({ maxSortOrder: max(imageSubjects.sortOrder) })
+                    .from(imageSubjects)
+                    .where(and(eq(imageSubjects.imageId, image.id), eq(imageSubjects.subjectId, subjectId)))
+                    .all();
+                const sortOrder = maxSortOrder === null ? 0 : maxSortOrder + 1;
+
                 const [imageSubject] = tx
                     .insert(imageSubjects)
-                    .values({ imageId: image.id, subjectId, label: label?.trim() || null })
+                    .values({ imageId: image.id, subjectId, label: label?.trim() || null, sortOrder })
                     .returning()
                     .all();
 
